@@ -22,3 +22,11 @@ hosts:
   legacy.example:
     ignore: true
     reason: "deprecated endpoint, removed in the next release"
+
+  # A host relayed to its real server untouched, so the app can log in and
+  # the hosts it contacts afterwards are the ones measured. It is NOT tested:
+  # it reads inconclusive with reason "passthrough" and cannot carry an expect.
+  # Add ignore: true if -fail-on-inconclusive should not trip on it.
+  login.bank.example:
+    passthrough: true
+    reason: "SPKI-pinned login API; let the app log in so the rest is exercised"

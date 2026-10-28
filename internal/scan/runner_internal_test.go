@@ -37,6 +37,40 @@ func TestObserverOutcomesSnapshot(t *testing.T) {
 	}
 }
 
+func TestServerOptsAddPassthroughAndTransparent(t *testing.T) {
+	t.Parallel()
+
+	match := func(string) bool { return true }
+	cases := []struct {
+		name        string
+		cfg         Config
+		extra       int
+		wantOptions int
+	}{
+		{"neither", Config{Target: &bindProbeTarget{}}, 0, 0},
+		{"passthrough only", Config{Target: &bindProbeTarget{}, Passthrough: match}, 0, 1},
+		{"transparent only", Config{Target: &transparentProbe{}}, 0, 1},
+		{"both, with extras kept", Config{Target: &transparentProbe{}, Passthrough: match}, 2, 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			extra := make([]proxy.ServerOption, tc.extra)
+			for i := range extra {
+				extra[i] = proxy.WithTransparent()
+			}
+			if got := len(tc.cfg.serverOpts(extra...)); got != tc.wantOptions {
+				t.Errorf("serverOpts() returned %d options, want %d", got, tc.wantOptions)
+			}
+		})
+	}
+}
+
+// transparentProbe is a Target that reports transparent routing.
+type transparentProbe struct{ bindProbeTarget }
+
+func (*transparentProbe) Transparent() bool { return true }
+
 func TestLocalIP(t *testing.T) {
 	t.Parallel()
 

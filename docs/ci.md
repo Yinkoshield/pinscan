@@ -75,9 +75,67 @@ pinscan scan com.example.app -policy .pinscan.yaml -fail-on-interceptable
 - `allow: true` — the host may be interceptable: an **accepted risk**, surfaced
   in the output and exempt from `-fail-on-interceptable`.
 - `ignore: true` — excluded from gating (still shown).
+- `passthrough: true` — relayed to the real server, **not tested**; see below.
 
-Loading fails if any entry lacks a reason or uses an unknown field, so a typo
-cannot silently weaken the gate.
+Loading fails if any entry lacks a reason, uses an unknown field, or combines
+`expect` with `passthrough` (an untested host cannot meet an expectation), so a
+typo cannot silently weaken the gate.
+
+## Passthrough hosts
+
+When an app's first connection (login, config, bootstrap) is key-pinned, every
+wave presents it a forged certificate, the app refuses, and often stops there:
+no session, no further hosts, and the question that matters — "the login API
+pins its key, but is everything else checked properly?" — goes unanswered. A
+**passthrough** host is relayed to its real server byte for byte, with no
+forged certificate, so the app's own pinning check passes and the app proceeds
+to the hosts the scan is after.
+
+```yaml
+hosts:
+  login.bank.example:
+    passthrough: true
+    reason: "SPKI-pinned login API; let the app log in so the rest is exercised"
+  "*.auth.bank.example":
+    passthrough: true
+    ignore: true
+    reason: "SSO front doors, pinned; do not gate on them"
+```
+
+The same list can come from the CLI (`-passthrough login.bank.example`,
+repeatable, `*.suffix` wildcards allowed); both sources merge into one list. A
+wildcard host key is only valid on a passthrough rule, since every other rule
+is matched by exact host. A malformed wildcard (`*.`, `api.*.example`) is
+refused.
+
+The bare `*` relays every host. That is a **discovery run**, not a scan: some
+apps pin their very first connection so tightly that no wave ever sees a
+request from any host, and relaying everything is the only way to learn which
+hosts the app contacts at all. Every host is still recorded (from its CONNECT
+target or SNI) and listed `inconclusive` with reason `passthrough`; the tally
+reads "N passthrough (not tested), 0 hardened", the report carries
+`summary.passthrough` equal to the host count, and a warning is logged at
+start. Take the host list from it, then scan again passing through only the
+pinned host. It is accepted from the CLI (`-passthrough '*'`) and from a
+policy key `"*"` with `passthrough: true`, which is never listed as unobserved.
+
+A passthrough host is **not tested**, and nothing lets it look tested:
+
+- its verdict is `inconclusive` with reason `passthrough` in every wave it was
+  seen in (`passthrough_dial_failed` when the real server could not be
+  reached), and it carries the caveat "passthrough: relayed to the real server,
+  not tested" in the text output, Markdown, HTML and JSON;
+- the tally and the report count it separately: `4 host(s): 1 interceptable,
+  1 inconclusive (not verified), 1 passthrough (not tested), 1 hardened`
+  (`summary.passthrough` in JSON);
+- being inconclusive, it trips `-fail-on-inconclusive` unless the rule also
+  says `ignore: true`, and a host that had a verdict in the baseline and is now
+  passthrough is **needs-review**, not a pass and not a regression;
+- SARIF emits no result for it (nothing was found); JUnit emits a skipped case
+  with the caveat as the reason.
+
+A wildcard passthrough entry never appears as "unobserved": it names a family
+of hosts, not one host to look for.
 
 ## Confidence gate
 
@@ -114,6 +172,7 @@ jobs:
         run: |
           ./bin/pinscan scan com.example.app \
             -policy .pinscan.yaml \
+            -passthrough login.example.com \
             -baseline baselines/com.example.app.json \
             -fail-on-regression -fail-on-interceptable \
             -report findings.sarif -log-format json

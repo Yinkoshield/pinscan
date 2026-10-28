@@ -9,6 +9,29 @@ All notable changes to pinscan are recorded here. The format follows
 
 ### Added
 
+- **Per-host passthrough.** `-passthrough <host>` (repeatable, `*.suffix`
+  wildcards allowed, on `scan` and `baseline`) and `passthrough: true` in
+  `.pinscan.yaml` name hosts the proxy relays to their real server byte for
+  byte, with no forged certificate, so an app whose login API is key-pinned
+  can log in and expose whether its other hosts are checked properly. In
+  transparent mode the host is read from the raw ClientHello's SNI before the
+  handshake. A passthrough host is not tested and never looks tested: it reads
+  `inconclusive` with reason `passthrough` (`passthrough_dial_failed` when the
+  real server is unreachable) and the caveat "passthrough: relayed to the real
+  server, not tested"; the tally shows "N passthrough (not tested)"; the JSON
+  report gains `summary.passthrough` and per-host `passthrough` and `caveat`
+  (schema 1.2.0, additive); SARIF emits no result for it and JUnit a skipped
+  case with the caveat. It still trips `-fail-on-inconclusive` unless the
+  policy also says `ignore: true`, and a baselined verdict that turns
+  passthrough is needs-review. The bare `*` relays every host: a discovery
+  run that tests nothing but lists every host the app contacted, for apps
+  whose first connection is pinned so tightly that no wave sees a request; it
+  logs a warning at start. A malformed wildcard, or `expect` together with
+  `passthrough`, is refused at load time. `pinscan selftest` has
+  a sixth posture, a key-pinning client on the passthrough list, asserted to
+  read `inconclusive` with reason `passthrough`, and prints each posture's
+  generic-wave reason.
+
 - **Research-CA trust is verified before a rejection counts as pinning.** On
   Android, `scan` now compares the trust-store file by SHA-256 from inside the
   zygote mount namespaces (system mode, before the waves) or the app's own
@@ -35,6 +58,13 @@ All notable changes to pinscan are recorded here. The format follows
   `ykzpinscan` module does not bind and the trust probe does not inspect.
 
 ### Changed
+
+- Docs: `docs/android.md` and `docs/troubleshooting.md` now say that the
+  default proxy mode is device-global, so an app scanned earlier and still
+  running sends its traffic through pinscan too and, in scoped mode, its hosts
+  can read `spki` because it does not trust the research CA; the fix is to
+  `am force-stop` it, use `-transparent`, or relay its hosts with
+  `-passthrough`.
 
 - Verdict explanations, SARIF rule texts and the docs describe observed
   behaviour rather than a mechanism: `spki` is "rejected every forged chain,

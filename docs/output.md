@@ -27,7 +27,7 @@ its JSON Schema with `pinscan schema`.
 
 ```jsonc
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "tool": { "name": "pinscan", "version": "1.2.3" },
   "scan": {                       // deterministic inputs
     "package": "com.example.app",
@@ -40,6 +40,7 @@ its JSON Schema with `pinscan schema`.
   },
   "summary": {
     "hosts_total": 3, "interceptable": 1, "inconclusive": 1,
+    "passthrough": 1,             // relayed, not tested (1.2.0); also counted in inconclusive
     "by_verdict": { "open": 1, "metadata": 0, "name-validation": 0,
                     "key-pinned": 0, "spki": 1, "inconclusive": 1 }
   },
@@ -54,6 +55,19 @@ its JSON Schema with `pinscan schema`.
         { "wave": "generic", "outcome": "rejected", "reason": "tls_alert_bad_certificate" },
         { "wave": "cloned",  "outcome": "rejected", "reason": "tls_alert_bad_certificate" },
         { "wave": "issuer",  "outcome": "rejected", "reason": "tls_alert_bad_certificate" }
+      ]
+    },
+    {
+      "host": "login.example.com",
+      "verdict": "inconclusive",
+      "confidence": "low",
+      "mechanism": "No usable signal: …",
+      "interceptable": false,
+      "passthrough": true,        // 1.2.0: relayed to the real server, not tested
+      "caveat": "passthrough: relayed to the real server, not tested",
+      "waves": [
+        { "wave": "generic", "outcome": "ambiguous", "reason": "passthrough" },
+        { "wave": "cloned",  "outcome": "ambiguous", "reason": "passthrough" }
       ]
     }
   ],
@@ -73,11 +87,25 @@ not trust the CA rejects every forged chain exactly like a pinned one. The
 `mechanism` field is a plain-language account of the observed behaviour, not an
 identification of the pinning implementation.
 
+A host with `"passthrough": true` was relayed to its real server untouched
+(`-passthrough`, or `passthrough: true` in the policy) and **not tested**: its
+verdict is `inconclusive`, its waves carry reason `passthrough` (or
+`passthrough_dial_failed` when the real server could not be reached), and
+`caveat` says so in words. `summary.passthrough` counts these hosts; because
+they are inconclusive they are also counted in `summary.inconclusive` and
+`by_verdict.inconclusive`, so a consumer gating on the inconclusive count sees
+every untested host. The text, Markdown and HTML tallies print disjoint buckets
+instead: "1 inconclusive (not verified), 1 passthrough (not tested)". The
+`caveat` field also carries the research-CA trust caveats (a withheld or
+operator-asserted hardened verdict), which the text output has always shown
+under the host.
+
 ### Versioning
 
 `schema_version` is semver. A consumer must refuse a **major** it does not
 recognise; additive fields are **minor** bumps. Ship your pinned expectations
-against the major you tested.
+against the major you tested. History: 1.1.0 added `scan.ca_trust`; 1.2.0 added
+`summary.passthrough` and the per-host `passthrough` and `caveat` fields.
 
 ### Canonical output (deterministic)
 
@@ -140,6 +168,7 @@ The `-report *.json` artifact also embeds these exchanges per host;
 |---------|-------------|-------|
 | interceptable (`open`/`metadata`/`name-validation`) | `error` | `<failure>` |
 | `inconclusive` | `warning` | `<skipped>` |
+| `inconclusive`, passthrough host | no result (nothing was tested) | `<skipped>` with the caveat as the message |
 | `key-pinned` / `spki` | `note` | pass |
 
 SARIF results carry a per-host location so code-scanning UIs display them, and a

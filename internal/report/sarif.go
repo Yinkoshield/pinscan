@@ -12,7 +12,8 @@ const informationURI = "https://github.com/Yinkoshield/pinscan"
 
 // SARIF writes rep as a SARIF 2.1.0 log, so a scan's findings land in a code-
 // scanning UI (e.g. the GitHub PR "Security" tab). Interceptable hosts are
-// errors, inconclusive hosts warnings, and hardened hosts notes.
+// errors, inconclusive hosts warnings, and hardened hosts notes. A passthrough
+// host yields no result: it was relayed, not tested, so there is no finding.
 func SARIF(w io.Writer, rep Report) error {
 	log := sarifLog{
 		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
@@ -35,10 +36,13 @@ func SARIF(w io.Writer, rep Report) error {
 	return nil
 }
 
-// sarifResults renders one result per host.
+// sarifResults renders one result per tested host; passthrough hosts have none.
 func sarifResults(rep Report) []sarifResult {
 	results := make([]sarifResult, 0, len(rep.Hosts))
 	for _, h := range rep.Hosts {
+		if h.Passthrough {
+			continue
+		}
 		results = append(results, sarifResult{
 			RuleID:  "pinscan/" + h.Verdict,
 			Level:   sarifLevel(h),

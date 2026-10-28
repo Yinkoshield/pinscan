@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/yinkoshield/pinscan/internal/proxy"
 	"github.com/yinkoshield/pinscan/internal/selftest"
 )
 
@@ -20,9 +21,21 @@ func TestSelftestProvesEveryPosture(t *testing.T) {
 	if len(cases) == 0 {
 		t.Fatal("selftest produced no cases")
 	}
+	var sawPassthrough bool
 	for _, c := range cases {
 		if !c.Pass {
-			t.Errorf("posture %q: got verdict %q, want %q", c.Posture, c.Got, c.Want)
+			t.Errorf("posture %q: got verdict %q (reason %q), want %q", c.Posture, c.Got, c.Reason, c.Want)
 		}
+		if c.Posture == "passthrough" {
+			sawPassthrough = true
+			// The honesty rule end to end: a key-pinning client whose host is
+			// relayed must read inconclusive because of the relay, not spki.
+			if c.Got != "inconclusive" || c.Reason != proxy.ReasonPassthrough {
+				t.Errorf("passthrough posture = %q/%q, want inconclusive/%s", c.Got, c.Reason, proxy.ReasonPassthrough)
+			}
+		}
+	}
+	if !sawPassthrough {
+		t.Error("selftest has no passthrough posture")
 	}
 }

@@ -1,15 +1,17 @@
 // Package selftest proves the pinscan methodology end-to-end without a device.
 //
 // It stands up, for each known client posture (no pinning, metadata validation,
-// issuer-name validation, public-key pinning, and a client that does not trust
-// the research CA at all), a loopback client that pins on exactly that
-// property, and runs the real waves through the real
-// certmint → proxy → observer → classify path, then the trust rule. It asserts
-// the verdict equals the known posture. A green selftest demonstrates — rather
-// than merely asserts — that the metadata/name/key distinctions hold, that an
-// untrusted test CA is not mistaken for pinning, and catches a silent certmint
-// regression (e.g. ClonedIssuer no longer cloning the issuer DN) that a unit
-// test of the pure classifier cannot see.
+// issuer-name validation, public-key pinning, a client that does not trust the
+// research CA at all, and a key-pinning client whose host is on the passthrough
+// list), a loopback client that pins on exactly that property, and runs the
+// real waves through the real certmint → proxy → observer → classify path, then
+// the trust rule. It asserts the verdict equals the known posture. A green
+// selftest demonstrates — rather than merely asserts — that the
+// metadata/name/key distinctions hold, that an untrusted test CA is not
+// mistaken for pinning, that a relayed host reads inconclusive rather than
+// hardened, and catches a silent certmint regression (e.g. ClonedIssuer no
+// longer cloning the issuer DN) that a unit test of the pure classifier cannot
+// see.
 //
 // It is not a model of every real TLS stack: each posture is a deliberately
 // simple pin on one property, chosen to exercise one branch of the classifier.
@@ -27,6 +29,7 @@ import (
 	"crypto/x509/pkix"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
@@ -41,11 +44,14 @@ import (
 // host is the endpoint name every posture is scanned against.
 const host = "api.selftest.local"
 
-// Case is the result of one posture: the verdict expected versus produced.
+// Case is the result of one posture: the verdict expected versus produced, and
+// the reason the generic wave recorded, so the proof shows why a verdict came
+// out as it did (for the passthrough posture, that reason is the assertion).
 type Case struct {
 	Posture string
 	Want    string
 	Got     string
+	Reason  string
 	Pass    bool
 }
 
@@ -54,6 +60,12 @@ type Case struct {
 type posture struct {
 	name string
 	want classify.Verdict
+	// wantReason, when set, is the generic-wave reason the host must carry for
+	// the posture to pass, on top of the verdict.
+	wantReason string
+	// passthrough puts the selftest host on the proxy's passthrough list, so the
+	// client is relayed to the in-process real server instead of being tested.
+	passthrough bool
 	// trust is what a real scan would have established about the research CA
 	// for this client; the trust rule is applied with it, as in a scan.
 	trust  scan.TrustStatus
@@ -68,60 +80,73 @@ func Run(ctx context.Context) ([]Case, error) {
 	if err != nil {
 		return nil, fmt.Errorf("selftest: new CA: %w", err)
 	}
-	realLeaf, err := makeRealLeaf()
+	realCert, err := makeRealLeaf()
 	if err != nil {
 		return nil, fmt.Errorf("selftest: real leaf: %w", err)
 	}
+	realLeaf := realCert.Leaf
+	upstream, err := startRealServer(ctx, realCert)
+	if err != nil {
+		return nil, fmt.Errorf("selftest: real server: %w", err)
+	}
+	defer upstream.close()
 
 	cases := make([]Case, 0, len(postures()))
 	for _, p := range postures() {
-		results, err := scan.Run(ctx, waveFunc(ca, realLeaf, p.config(ca, realLeaf)))
+		var opts []proxy.ServerOption
+		if p.passthrough {
+			opts = upstream.passthroughOpts()
+		}
+		results, err := scan.Run(ctx, waveFunc(ca, realLeaf, p.config(ca, realLeaf), opts...))
 		if err != nil {
 			return nil, fmt.Errorf("selftest: posture %q: %w", p.name, err)
 		}
-		got := verdictOf(scan.ApplyTrust(results, p.trust))
+		got, reason := resultOf(scan.ApplyTrust(results, p.trust))
 		cases = append(cases, Case{
 			Posture: p.name,
 			Want:    p.want.String(),
 			Got:     got.String(),
-			Pass:    got == p.want,
+			Reason:  reason,
+			Pass:    got == p.want && (p.wantReason == "" || reason == p.wantReason),
 		})
 	}
 	return cases, nil
 }
 
-// verdictOf returns the verdict recorded for the selftest host, or Inconclusive.
-func verdictOf(results []scan.HostResult) classify.Verdict {
+// resultOf returns the verdict recorded for the selftest host and the reason
+// behind its generic-wave observation, or Inconclusive and "not_observed" when
+// the host was never seen.
+func resultOf(results []scan.HostResult) (classify.Verdict, string) {
 	for _, r := range results {
 		if r.Host == host {
-			return r.Verdict
+			return r.Verdict, r.Waves[proxy.Generic.String()].Reason
 		}
 	}
-	return classify.Inconclusive
+	return classify.Inconclusive, "not_observed"
 }
 
 func postures() []posture {
 	return []posture{
-		{"no-pinning", classify.Open, scan.TrustVerified, func(ca *certmint.CA, _ *x509.Certificate) *tls.Config {
+		{"no-pinning", classify.Open, "", false, scan.TrustVerified, func(ca *certmint.CA, _ *x509.Certificate) *tls.Config {
 			pool := x509.NewCertPool()
 			pool.AddCert(ca.Cert())
 			return &tls.Config{RootCAs: pool, ServerName: host, MinVersion: tls.VersionTLS12}
 		}},
-		{"metadata-validation", classify.Metadata, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
+		{"metadata-validation", classify.Metadata, "", false, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
 			return pinningConfig(func(leaf *x509.Certificate) bool {
 				// Accepts any certificate whose subject names match the real
 				// endpoint, regardless of key or issuer.
 				return leaf.Subject.String() == realLeaf.Subject.String()
 			})
 		}},
-		{"name-validation", classify.NameValidation, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
+		{"name-validation", classify.NameValidation, "", false, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
 			return pinningConfig(func(leaf *x509.Certificate) bool {
 				// Accepts any leaf whose issuer name matches the real issuer,
 				// regardless of key — defeated by a cloned-issuer chain.
 				return leaf.Issuer.String() == realLeaf.Issuer.String()
 			})
 		}},
-		{"spki-pinning", classify.SPKI, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
+		{"spki-pinning", classify.SPKI, "", false, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
 			realSPKI := spki(realLeaf)
 			return pinningConfig(func(leaf *x509.Certificate) bool {
 				// Accepts only the real endpoint's public key — never matched by
@@ -129,13 +154,24 @@ func postures() []posture {
 				return bytes.Equal(spki(leaf), realSPKI)
 			})
 		}},
-		{"untrusted-ca", classify.Inconclusive, scan.TrustUnverified, func(_ *certmint.CA, _ *x509.Certificate) *tls.Config {
+		{"untrusted-ca", classify.Inconclusive, "", false, scan.TrustUnverified, func(_ *certmint.CA, _ *x509.Certificate) *tls.Config {
 			// A plain client that was never made to trust the research CA: it
 			// rejects every forged chain with a certificate alert, which on the
 			// wire is indistinguishable from key pinning. Trust is unverified for
 			// this posture, so the hardened verdict must be withheld — a broken
 			// setup must not read as protection.
 			return &tls.Config{RootCAs: x509.NewCertPool(), ServerName: host, MinVersion: tls.VersionTLS12}
+		}},
+		{"passthrough", classify.Inconclusive, proxy.ReasonPassthrough, true, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
+			// The same key-pinning client as spki-pinning, but its host is on
+			// the passthrough list: the proxy relays it to the real server, the
+			// pin matches the real key, and the app proceeds. Nothing was tested,
+			// so the host must read inconclusive with reason "passthrough", never
+			// spki — a relayed host must not look hardened.
+			realSPKI := spki(realLeaf)
+			return pinningConfig(func(leaf *x509.Certificate) bool {
+				return bytes.Equal(spki(leaf), realSPKI)
+			})
 		}},
 	}
 }
@@ -176,8 +212,9 @@ func spki(cert *x509.Certificate) []byte {
 }
 
 // waveFunc returns a [scan.WaveFunc] that runs one wave over a loopback proxy
-// with the posture's client connecting to it.
-func waveFunc(ca *certmint.CA, realLeaf *x509.Certificate, clientCfg *tls.Config) scan.WaveFunc {
+// with the posture's client connecting to it. The options configure the proxy
+// (the passthrough posture adds its list and the in-process real server).
+func waveFunc(ca *certmint.CA, realLeaf *x509.Certificate, clientCfg *tls.Config, opts ...proxy.ServerOption) scan.WaveFunc {
 	realFor := func(string) *x509.Certificate { return realLeaf }
 	return func(ctx context.Context, wave proxy.Wave) (map[string]scan.WaveObservation, error) {
 		obs := proxy.NewObserver()
@@ -185,7 +222,7 @@ func waveFunc(ca *certmint.CA, realLeaf *x509.Certificate, clientCfg *tls.Config
 		if err != nil {
 			return nil, fmt.Errorf("selftest: listen: %w", err)
 		}
-		srv := proxy.NewServer(ca, wave, realFor, obs)
+		srv := proxy.NewServer(ca, wave, realFor, obs, opts...)
 		done := make(chan error, 1)
 		go func() { done <- srv.Serve(ln) }()
 
@@ -233,14 +270,81 @@ func runClient(ctx context.Context, proxyAddr string, clientCfg *tls.Config) {
 	_, _ = fmt.Fprintf(tlsConn, "GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", host)
 }
 
+// realServer is the in-process "real endpoint" a passthrough host is relayed
+// to: a TLS listener serving the real leaf, answering any request with a
+// minimal response. The key-pinning client accepts it (the key is the pinned
+// one), proving the relay carried the real chain, not a forged one.
+type realServer struct {
+	ln   net.Listener
+	done chan struct{}
+}
+
+// startRealServer listens on loopback and serves cert until close is called.
+func startRealServer(ctx context.Context, cert tls.Certificate) (*realServer, error) {
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, err
+	}
+	s := &realServer{ln: ln, done: make(chan struct{})}
+	cfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+	go s.serve(ctx, cfg)
+	return s, nil
+}
+
+// serve accepts connections until the listener closes, answering each in turn
+// (the selftest client is sequential, so no concurrency is needed).
+func (s *realServer) serve(ctx context.Context, cfg *tls.Config) {
+	defer close(s.done)
+	for {
+		conn, err := s.ln.Accept()
+		if err != nil {
+			return
+		}
+		answer(ctx, conn, cfg)
+	}
+}
+
+// answer completes the TLS handshake with the real certificate, reads one HTTP
+// request and writes a minimal response, then closes.
+func answer(ctx context.Context, conn net.Conn, cfg *tls.Config) {
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	tlsConn := tls.Server(conn, cfg)
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		return
+	}
+	if _, err := http.ReadRequest(bufio.NewReader(tlsConn)); err != nil {
+		return
+	}
+	_, _ = io.WriteString(tlsConn, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+}
+
+// close stops the server and waits for the accept loop to exit.
+func (s *realServer) close() {
+	_ = s.ln.Close()
+	<-s.done
+}
+
+// passthroughOpts configures a proxy to relay the selftest host to this server.
+func (s *realServer) passthroughOpts() []proxy.ServerOption {
+	addr := s.ln.Addr().String()
+	return []proxy.ServerOption{
+		proxy.WithPassthrough(func(h string) bool { return h == host }),
+		proxy.WithPassthroughDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+		}),
+	}
+}
+
 // makeRealLeaf builds a fixture "real endpoint" certificate: a leaf with a
 // distinctive subject (CN plus organization) signed by a distinct root, so the
 // subject, the issuer, and the key are each distinguishable from the scanner's
-// own CA and from a generic leaf.
-func makeRealLeaf() (*x509.Certificate, error) {
+// own CA and from a generic leaf. The returned certificate carries the leaf's
+// private key and the root, so the in-process real server can serve it.
+func makeRealLeaf() (tls.Certificate, error) {
 	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 	now := time.Now()
 	rootTmpl := &x509.Certificate{
@@ -254,16 +358,16 @@ func makeRealLeaf() (*x509.Certificate, error) {
 	}
 	rootDER, err := x509.CreateCertificate(rand.Reader, rootTmpl, rootTmpl, rootKey.Public(), rootKey)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 	root, err := x509.ParseCertificate(rootDER)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 
 	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
 	leafTmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(2),
@@ -277,7 +381,11 @@ func makeRealLeaf() (*x509.Certificate, error) {
 	}
 	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, root, leafKey.Public(), rootKey)
 	if err != nil {
-		return nil, err
+		return tls.Certificate{}, err
 	}
-	return x509.ParseCertificate(leafDER)
+	leaf, err := x509.ParseCertificate(leafDER)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.Certificate{Certificate: [][]byte{leafDER, rootDER}, PrivateKey: leafKey, Leaf: leaf}, nil
 }

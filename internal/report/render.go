@@ -41,18 +41,19 @@ var markdownTemplate = texttemplate.Must(texttemplate.New("md").Parse(`# pinscan
 - **Package:** {{.Scan.Package}}
 - **Mode:** {{.Scan.Mode}}{{if .Scan.Transparent}} (transparent){{end}} · window {{.Scan.WindowSeconds}}s{{with .Scan.CATrust}} · research CA trust **{{.}}**{{end}}
 - **Schema:** {{.SchemaVersion}}{{with .Run}} · generated {{.StartedAt}}{{end}}
-- **Summary:** {{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.Inconclusive}} inconclusive
+- **Summary:** {{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.NotVerified}} inconclusive (not verified){{if .Summary.Passthrough}} · {{.Summary.Passthrough}} passthrough (not tested){{end}}
 
 ## Verdicts
 
 | Host | Verdict | Confidence | Interceptable |
 |------|---------|------------|:---:|
-{{range .Hosts}}| {{.Host}} | {{.Verdict}} | {{.Confidence}} | {{if .Interceptable}}yes{{else}}no{{end}} |
+{{range .Hosts}}| {{.Host}} | {{.Verdict}}{{if .Passthrough}} (passthrough, not tested){{end}} | {{.Confidence}} | {{if .Interceptable}}yes{{else}}no{{end}} |
 {{end}}
 ### How each host is pinned
 
 {{range .Hosts}}- **{{.Host}}** — {{.Mechanism}}
-{{if .Waves}}{{range .Waves}}    - wave {{.Wave}}: {{.Outcome}} ({{.Reason}})
+{{if .Caveat}}    - ⚠ {{.Caveat}}
+{{end}}{{if .Waves}}{{range .Waves}}    - wave {{.Wave}}: {{.Outcome}} ({{.Reason}})
 {{end}}{{end}}{{end}}
 {{range .Hosts}}{{if .Exchanges}}## {{.Host}} — captured exchanges
 
@@ -97,12 +98,13 @@ pre { background:var(--code); padding:.7rem; border-radius:.4rem; overflow:auto;
 .reason { color:var(--mut); font-weight:400; }
 .conf { font:600 .8rem/1 ui-monospace,monospace; }
 .conf-low { color:var(--bad); } .conf-medium { color:#b26a00; } .conf-high { color:var(--ok); }
+.caveat { color:#b26a00; font-size:.8rem; margin-top:.25rem; max-width:52ch; }
 </style>
 </head>
 <body>
 <h1>pinscan report</h1>
 <div class="meta">{{.Scan.Package}} · {{.Scan.Mode}}{{if .Scan.Transparent}} (transparent){{end}} · window {{.Scan.WindowSeconds}}s{{with .Scan.CATrust}} · research CA trust {{.}}{{end}} · schema {{.SchemaVersion}}{{with .Run}} · {{.StartedAt}}{{end}}<br>
-{{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.Inconclusive}} inconclusive (not verified)</div>
+{{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.NotVerified}} inconclusive (not verified){{if .Summary.Passthrough}} · {{.Summary.Passthrough}} passthrough (not tested){{end}}</div>
 
 <table>
 <thead><tr><th>Host</th><th>Verdict</th><th>Confidence</th><th>Interceptable</th></tr></thead>
@@ -110,6 +112,7 @@ pre { background:var(--code); padding:.7rem; border-radius:.4rem; overflow:auto;
 {{range .Hosts}}<tr>
 <td>{{.Host}}</td>
 <td><span class="badge">{{.Verdict}}</span><div class="mech">{{.Mechanism}}</div>
+{{if .Caveat}}<div class="caveat">⚠ {{.Caveat}}</div>{{end}}
 {{if .Waves}}<div class="waves">{{range .Waves}}<span class="wave">{{.Wave}}: {{.Outcome}} <span class="reason">({{.Reason}})</span></span>{{end}}</div>{{end}}</td>
 <td class="conf conf-{{.Confidence}}">{{.Confidence}}</td>
 <td class="{{if .Interceptable}}yes{{else}}no{{end}}">{{if .Interceptable}}yes{{else}}no{{end}}</td>

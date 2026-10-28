@@ -111,6 +111,22 @@ inconclusive (not verified), 0 hardened"), and the CI gates treat a
 decided→inconclusive change as **needs-review**, not a silent pass. See
 [CI integration](ci.md).
 
+### A passthrough host is not tested, so it reads inconclusive
+
+An app whose first connection is key-pinned often stops at the first forged
+certificate, and the hosts behind the login are never contacted. A
+**passthrough** host (`-passthrough`, or `passthrough: true` in the policy) is
+relayed to its real server byte for byte so the app gets past it. The proxy
+never presents that host a forged certificate, so it observes nothing about its
+pinning: the host is recorded `ambiguous` with reason `passthrough` in every
+wave, which the unchanged classifier turns into `inconclusive`, with the caveat
+"passthrough: relayed to the real server, not tested". It is deliberately not
+a separate verdict and never reads `spki`, however well the app's own pin held
+against the real server, because the scan did not test it. The tally lists
+such hosts as "passthrough (not tested)", and `pinscan selftest` includes a
+key-pinning client on the passthrough list and asserts it reads `inconclusive`
+with that reason.
+
 ## Confidence
 
 Every verdict carries a confidence — `low`, `medium`, or `high` — a separate
@@ -140,12 +156,14 @@ be bypassed by any means."
 
 `pinscan selftest` runs the real `certmint → proxy → observer → classify` path,
 then the trust rule, against in-process clients that emulate each posture
-(no-pin, metadata, name-validation, key-level check, and a client that does not
-trust the research CA) and asserts the resulting verdict. It demonstrates the
+(no-pin, metadata, name-validation, key-level check, a client that does not
+trust the research CA, and a key-pinning client whose host is on the
+passthrough list) and asserts the resulting verdict. It demonstrates the
 separation end-to-end without a device, shows that an untrusted test CA reads
-`inconclusive` rather than `spki`, and catches a silent regression (e.g. a
-cert-minting change that stops cloning the issuer DN) that a unit test of the
-pure classifier could not see.
+`inconclusive` rather than `spki`, that a relayed host reads `inconclusive`
+with reason `passthrough` rather than `spki`, and catches a silent regression
+(e.g. a cert-minting change that stops cloning the issuer DN) that a unit test
+of the pure classifier could not see.
 
 ## Related work
 

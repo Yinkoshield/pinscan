@@ -61,6 +61,14 @@ is not allowed to trust. Read the line after the tally first:
   (root detection, crash). Trust stays unverified and nothing is observed.
 - **Host-not-reachable from the device** — the device must reach `-host-ip` on
   the proxy port over the LAN; check the host firewall.
+- **The first connection is pinned and the app stops there** — a key-pinned
+  login or bootstrap host refuses the forged certificate, and the app never
+  reaches its other hosts. Relay that one host untouched with
+  `-passthrough login.example.com` so the app proceeds; it is reported as
+  "passthrough (not tested)" and the rest is measured. If you do not know which
+  host it is, `-passthrough '*'` relays everything and lists every host the app
+  contacts, testing nothing; take the host from that list and scan again. See
+  [CI integration](ci.md#passthrough-hosts).
 
 `inconclusive` is deliberate: pinscan will not report "hardened" when it saw
 nothing, nor when the test setup itself could explain the rejections (see
@@ -92,6 +100,29 @@ A verdict backed by a single observation is `medium`; `key-pinned` is capped at
 `medium`; a host that conflicted or was inconclusive is `low`. Raise `-window`
 so the deciding wave gets multiple consistent attempts, or lower the threshold.
 See [confidence](methodology.md#confidence).
+
+## Hosts from an app I scanned earlier keep showing up
+
+In the default proxy mode the device's HTTP proxy is global: every app that
+honours it and is running during the window sends its traffic through pinscan,
+including an app you scanned a moment ago and never stopped. pinscan
+force-stops and relaunches only the target app. Its hosts then land in the
+results, and in **scoped** mode they can read `spki`, because that app does not
+trust the research CA and rejects every forged certificate exactly like a
+pinned one.
+
+Stop the previous app before scanning the next:
+
+```sh
+adb shell am force-stop com.previous.app
+```
+
+Or use `-transparent`, whose iptables redirect is scoped to the target's UID so
+other apps never reach the proxy. A host you know belongs to another app can
+also be relayed with `-passthrough <host>`; it is then reported as not tested
+rather than given a verdict. Routing itself is restored after every scan; this
+is about which apps are talking while the proxy is set, not about leftover
+state (for that, see the next entry but one).
 
 ## Transparent mode changed which hosts appear
 

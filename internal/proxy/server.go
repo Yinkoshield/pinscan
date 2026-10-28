@@ -84,6 +84,12 @@ type Server struct {
 	transparent bool
 	// logger, when set via WithLogger, logs each captured exchange live.
 	logger *slog.Logger
+	// passthrough, when set via WithPassthrough, names the hosts relayed to
+	// their real server untouched (see server_passthrough.go).
+	passthrough func(host string) bool
+	// passthroughDial reaches a passthrough host's real server; nil means
+	// host:443 (see WithPassthroughDialer).
+	passthroughDial PassthroughDialer
 }
 
 // discardLogger drops all records; used when a Server has no logger.
@@ -192,15 +198,20 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 // handleTransparent terminates TLS directly on a redirected connection (no
 // CONNECT), taking the host from the SNI, and records the outcome. On a
 // successful handshake with capture enabled it serves the tunnel like the
-// CONNECT path.
+// CONNECT path. With a passthrough list, the SNI is first read from the raw
+// ClientHello so a listed host is relayed instead of terminated.
 func (s *Server) handleTransparent(ctx context.Context, conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
 	if err := conn.SetDeadline(time.Now().Add(handshakeTimeout)); err != nil {
 		return
 	}
+	raw, terminate := s.transparentConn(ctx, conn)
+	if !terminate {
+		return // Relayed to the real server; nothing to terminate.
+	}
 	var sni string
-	tlsConn := tls.Server(conn, s.transparentConfig(&sni))
+	tlsConn := tls.Server(raw, s.transparentConfig(&sni))
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		if sni != "" {
 			outcome, reason := handshakeOutcome(err)
@@ -212,6 +223,24 @@ func (s *Server) handleTransparent(ctx context.Context, conn net.Conn) {
 		return // No host to attribute the outcome to.
 	}
 	s.recordUse(tlsConn, sni)
+}
+
+// transparentConn decides, for a redirected connection, between relaying a
+// passthrough host and terminating TLS. It returns the connection to hand to
+// [tls.Server] and true, or false once the connection was relayed. Without a
+// passthrough list the connection is returned as is; with one, the ClientHello
+// is peeked through a buffer large enough for a whole record, and the buffered
+// bytes reach tls.Server unchanged when the host is not listed.
+func (s *Server) transparentConn(ctx context.Context, conn net.Conn) (net.Conn, bool) {
+	if s.passthrough == nil {
+		return conn, true
+	}
+	reader := bufio.NewReaderSize(conn, maxClientHelloBytes)
+	if host := transparentSNI(reader); s.isPassthrough(host) {
+		s.passthroughTransparent(ctx, conn, reader, host)
+		return nil, false
+	}
+	return &bufferedConn{reader: reader, Conn: conn}, true
 }
 
 // handshakeOutcome maps a failed TLS handshake to a wave outcome and a reason.
@@ -278,6 +307,8 @@ func (s *Server) transparentConfig(sni *string) *tls.Config {
 
 // handleConn reads the CONNECT target, terminates TLS with the wave certificate,
 // and records whether the client accepted (handshake completed) or rejected it.
+// A passthrough host is relayed to its real server instead (see
+// server_passthrough.go).
 func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
@@ -295,10 +326,14 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 	host := hostnameOnly(req.Host)
+	limited.N = math.MaxInt64
+	if s.isPassthrough(host) {
+		s.passthroughConnect(ctx, conn, reader, host)
+		return
+	}
 	if _, err := conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
 		return
 	}
-	limited.N = math.MaxInt64
 
 	tlsConn := tls.Server(&bufferedConn{reader: reader, Conn: conn}, s.tlsConfigFor(host))
 	if err := tlsConn.HandshakeContext(ctx); err != nil {

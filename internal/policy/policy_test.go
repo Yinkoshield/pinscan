@@ -3,6 +3,7 @@ package policy_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/yinkoshield/pinscan/internal/classify"
@@ -61,6 +62,160 @@ hosts:
 `)
 	if _, err := policy.Load(path); err == nil {
 		t.Error("an invalid expect verdict must fail to load")
+	}
+}
+
+func TestLoadRejectsExpectWithPassthrough(t *testing.T) {
+	t.Parallel()
+
+	path := write(t, `
+hosts:
+  login.bank.example:
+    passthrough: true
+    expect: spki
+    reason: an untested host cannot meet an expectation
+`)
+	if _, err := policy.Load(path); err == nil {
+		t.Error("expect together with passthrough must fail to load")
+	}
+}
+
+func TestLoadRequiresReasonForPassthrough(t *testing.T) {
+	t.Parallel()
+
+	path := write(t, `
+hosts:
+  login.bank.example:
+    passthrough: true
+`)
+	if _, err := policy.Load(path); err == nil {
+		t.Error("a passthrough rule without a reason must fail to load")
+	}
+}
+
+func TestLoadAcceptsRelayEverythingPassthrough(t *testing.T) {
+	t.Parallel()
+
+	// The bare "*" is the explicit discovery run: relay every host, test
+	// nothing, list what the app contacted. It loads, is reported by
+	// PassthroughHosts, and is never listed as unobserved.
+	p := loadOK(t, `
+hosts:
+  "*":
+    passthrough: true
+    reason: the first connection is pinned; list the hosts before scanning
+`)
+	if got := p.PassthroughHosts(); len(got) != 1 || got[0] != "*" {
+		t.Errorf("PassthroughHosts() = %q, want [*]", got)
+	}
+	e := p.Evaluate([]scan.HostResult{host("any.example", classify.Inconclusive)})
+	if len(e.Unobserved) != 0 {
+		t.Errorf("unobserved = %+v, want none for the relay-everything rule", e.Unobserved)
+	}
+}
+
+func TestLoadRejectsMalformedPassthroughWildcard(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{`"*."`, `"api.*.example"`} {
+		path := write(t, `
+hosts:
+  `+key+`:
+    passthrough: true
+    reason: malformed wildcard
+`)
+		if _, err := policy.Load(path); err == nil {
+			t.Errorf("host key %s must fail to load", key)
+		}
+	}
+}
+
+func TestLoadRejectsRelayEverythingWithoutPassthrough(t *testing.T) {
+	t.Parallel()
+
+	path := write(t, `
+hosts:
+  "*":
+    ignore: true
+    reason: only passthrough may name every host
+`)
+	if _, err := policy.Load(path); err == nil {
+		t.Error("a bare * on a non-passthrough rule must fail to load")
+	}
+}
+
+func TestLoadRejectsWildcardWithoutPassthrough(t *testing.T) {
+	t.Parallel()
+
+	path := write(t, `
+hosts:
+  "*.bank.example":
+    expect: spki
+    reason: expectations are matched by exact host
+`)
+	if _, err := policy.Load(path); err == nil {
+		t.Error("a wildcard host on a non-passthrough rule must fail to load")
+	}
+}
+
+func TestPassthroughHosts(t *testing.T) {
+	t.Parallel()
+
+	p := loadOK(t, `
+hosts:
+  "*.auth.bank.example":
+    passthrough: true
+    reason: SSO front doors are SPKI-pinned
+  login.bank.example:
+    passthrough: true
+    ignore: true
+    reason: SPKI-pinned login API; let the app log in so the rest is exercised
+  api.bank.example:
+    expect: spki
+    reason: core banking API must pin
+`)
+	got := p.PassthroughHosts()
+	want := []string{"*.auth.bank.example", "login.bank.example"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("PassthroughHosts() = %q, want %q", got, want)
+	}
+}
+
+func TestEvaluatePassthroughHostFollowsOtherFlags(t *testing.T) {
+	t.Parallel()
+
+	p := loadOK(t, `
+hosts:
+  login.bank.example:
+    passthrough: true
+    reason: SPKI-pinned login API
+  sso.bank.example:
+    passthrough: true
+    ignore: true
+    reason: SPKI-pinned SSO; do not gate on it
+  "*.cdn.bank.example":
+    passthrough: true
+    reason: wildcard family, never matched by name
+`)
+	// A passthrough host comes out of the scan inconclusive. Without ignore it
+	// still counts against -fail-on-inconclusive (it is not excluded); with
+	// ignore it is excluded like any other host. The wildcard is never listed as
+	// unobserved: it names a family, not a host.
+	e := p.Evaluate([]scan.HostResult{
+		host("login.bank.example", classify.Inconclusive),
+		host("sso.bank.example", classify.Inconclusive),
+	})
+	if e.HasViolation() {
+		t.Errorf("passthrough hosts must not violate: %+v", e.Violations)
+	}
+	if e.Excluded("login.bank.example") {
+		t.Error("a passthrough host without ignore must still count for the inconclusive gate")
+	}
+	if !e.Excluded("sso.bank.example") {
+		t.Error("a passthrough host with ignore must be excluded from gating")
+	}
+	if len(e.Unobserved) != 0 {
+		t.Errorf("unobserved = %+v, want none (a wildcard family is not a host to observe)", e.Unobserved)
 	}
 }
 

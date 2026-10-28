@@ -46,6 +46,11 @@
         "hosts_total": { "type": "integer", "minimum": 0 },
         "interceptable": { "type": "integer", "minimum": 0 },
         "inconclusive": { "type": "integer", "minimum": 0 },
+        "passthrough": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Hosts relayed to their real server and not tested (schema 1.2.0). They are inconclusive, so they are also counted in inconclusive and by_verdict."
+        },
         "by_verdict": {
           "type": "object",
           "additionalProperties": { "type": "integer", "minimum": 0 }
@@ -70,6 +75,14 @@
           },
           "mechanism": { "type": "string" },
           "interceptable": { "type": "boolean" },
+          "passthrough": {
+            "type": "boolean",
+            "description": "The host was relayed to its real server untouched and not tested (schema 1.2.0); its verdict is inconclusive and caveat says so."
+          },
+          "caveat": {
+            "type": "string",
+            "description": "Qualifies the verdict when the scan has to: a hardened verdict withheld or resting on asserted CA trust, or a passthrough host (schema 1.2.0)."
+          },
           "waves": {
             "type": "array",
             "items": {

@@ -63,6 +63,11 @@ on, and that CI can re-run on every release.
   a rejection counts, and withholds hardened verdicts when it cannot.
 - **Confidence is a separate axis.** A one-shot `spki` and a well-evidenced
   `spki` are not the same thing, and CI can demand the latter.
+- **Gets past a pinned front door without lying about it.** `-passthrough`
+  relays a named host (a key-pinned login API, say) to its real server
+  untouched, so the app logs in and exposes the hosts behind it. The relayed
+  host is reported as not tested, never as hardened; `-passthrough '*'` relays
+  everything and only lists what the app contacts.
 - **Built for pipelines.** Exit codes that tell a broken scan from a policy
   breach, byte-stable JSON baselines, a regression gate, a policy file with
   mandatory reasons, SARIF and JUnit output.
@@ -157,8 +162,11 @@ Commit a baseline, then fail the pull request that weakens a host:
 
 ```sh
 pinscan baseline com.example.app -o baselines/com.example.app.json   # commit this
+# -passthrough: a key-pinned login API is relayed untouched so the app gets past
+# it; that host is not tested and reads inconclusive.
 pinscan scan com.example.app -baseline baselines/com.example.app.json \
   -policy .pinscan.yaml -fail-on-regression -fail-on-interceptable \
+  -passthrough login.example.com \
   -report findings.sarif -log-format json
 ```
 

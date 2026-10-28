@@ -24,7 +24,8 @@ deeper than the top-level [README](../README.md).
 - **[Output formats](output.md)** — the JSON contract, HTML/Markdown, SARIF and
   JUnit, and the schema-version policy.
 - **[CI integration](ci.md)** — exit codes, baselines and regression gates, the
-  `.pinscan.yaml` policy file, SARIF/JUnit, and a GitHub Actions example.
+  `.pinscan.yaml` policy file, passthrough hosts, SARIF/JUnit, and a GitHub
+  Actions example.
 
 ## Reference
 

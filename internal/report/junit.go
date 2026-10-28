@@ -8,7 +8,8 @@ import (
 
 // JUnit writes rep as JUnit XML, so a scan's hosts appear as test cases in a CI
 // test pane. An interceptable host is a failure; an inconclusive host is skipped
-// (ran, but no signal); a hardened host passes.
+// (ran, but no signal), a passthrough host likewise with its caveat as the
+// reason (relayed, not tested); a hardened host passes.
 func JUnit(w io.Writer, rep Report) error {
 	suite := junitSuite{
 		Name:  rep.Scan.Package,
@@ -17,6 +18,9 @@ func JUnit(w io.Writer, rep Report) error {
 	for _, h := range rep.Hosts {
 		tc := junitCase{Name: h.Host, Classname: "pinscan.pinning"}
 		switch {
+		case h.Passthrough:
+			suite.Skipped++
+			tc.Skipped = &junitSkipped{Message: h.Caveat}
 		case h.Interceptable:
 			suite.Failures++
 			tc.Failure = &junitFailure{

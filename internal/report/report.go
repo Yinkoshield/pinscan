@@ -20,8 +20,9 @@ import (
 
 // SchemaVersion is the semantic version of the JSON report contract. A consumer
 // refuses an unknown MAJOR; additive fields bump MINOR. See the JSON Schema
-// returned by [Schema].
-const SchemaVersion = "1.1.0"
+// returned by [Schema]. 1.1.0 added scan.ca_trust; 1.2.0 added
+// summary.passthrough and the per-host passthrough and caveat fields.
+const SchemaVersion = "1.2.0"
 
 // toolName is the tool name written into every report format.
 const toolName = "pinscan"
@@ -91,13 +92,20 @@ type Meta struct {
 // HostReport is one host's verdict, the per-wave evidence behind it, and (if
 // captured) its exchanges.
 type HostReport struct {
-	Host          string           `json:"host"`
-	Verdict       string           `json:"verdict"`
-	Confidence    string           `json:"confidence"`
-	Mechanism     string           `json:"mechanism"`
-	Interceptable bool             `json:"interceptable"`
-	Waves         []WaveReport     `json:"waves,omitempty"`
-	Exchanges     []ExchangeReport `json:"exchanges,omitempty"`
+	Host          string `json:"host"`
+	Verdict       string `json:"verdict"`
+	Confidence    string `json:"confidence"`
+	Mechanism     string `json:"mechanism"`
+	Interceptable bool   `json:"interceptable"`
+	// Passthrough marks a host relayed to its real server and not tested
+	// (schema 1.2.0). Its verdict is inconclusive and Caveat says why.
+	Passthrough bool `json:"passthrough,omitempty"`
+	// Caveat qualifies the verdict when the scan has to: a hardened verdict
+	// withheld or resting on asserted CA trust, or a passthrough host (schema
+	// 1.2.0).
+	Caveat    string           `json:"caveat,omitempty"`
+	Waves     []WaveReport     `json:"waves,omitempty"`
+	Exchanges []ExchangeReport `json:"exchanges,omitempty"`
 }
 
 // WaveReport is one wave's observation for a host — the auditable evidence
@@ -143,6 +151,8 @@ func Build(meta Meta, results []scan.HostResult, rec *capture.Recorder) Report {
 			Confidence:    string(r.Confidence),
 			Mechanism:     r.Verdict.Explain(),
 			Interceptable: r.Verdict.Defeatable(),
+			Passthrough:   r.Passthrough(),
+			Caveat:        r.Caveat,
 			Waves:         wavesReport(r.Waves),
 		}
 		for _, ex := range byHost[r.Host] {

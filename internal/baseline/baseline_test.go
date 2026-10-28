@@ -73,6 +73,25 @@ func TestDiffDecidedToInconclusiveIsNeedsReview(t *testing.T) {
 	}
 }
 
+func TestDiffDecidedToPassthroughIsNeedsReview(t *testing.T) {
+	t.Parallel()
+
+	// A host that had a verdict in the baseline and is now on the passthrough
+	// list reads inconclusive: it was relayed, not tested. That is the
+	// decided-to-inconclusive rule, so it is neither a regression nor a pass.
+	now := report.HostReport{Host: "login.bank", Verdict: vInconclusive, Passthrough: true, Caveat: "passthrough: relayed to the real server, not tested"}
+	d := baseline.Diff(rep(host("login.bank", vSPKI)), rep(now))
+	if d.HasRegression() {
+		t.Error("spki -> passthrough must not be a regression")
+	}
+	if len(d.Improvements) != 0 || len(d.Added) != 0 {
+		t.Errorf("improvements=%+v added=%+v, want none (an untested host is not a pass)", d.Improvements, d.Added)
+	}
+	if len(d.NeedsReview) != 1 || d.NeedsReview[0].To != vInconclusive {
+		t.Fatalf("needs-review = %+v, want the passthrough host as inconclusive", d.NeedsReview)
+	}
+}
+
 func TestDiffNewInterceptableHostIsRegression(t *testing.T) {
 	t.Parallel()
 
