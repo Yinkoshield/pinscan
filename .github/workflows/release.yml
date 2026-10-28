@@ -29,7 +29,7 @@ jobs:
       - name: Install syft (CycloneDX SBOM generation)
         uses: anchore/sbom-action/download-syft@v0
       - name: goreleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
