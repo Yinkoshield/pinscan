@@ -61,7 +61,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["host", "verdict", "confidence", "mechanism", "interceptable"],
+        "required": ["host", "verdict", "confidence", "mechanism", "interceptable", "interceptability"],
         "properties": {
           "host": { "type": "string" },
           "verdict": {
@@ -74,7 +74,15 @@
             "description": "How well-evidenced the verdict is: attempt count and conflicting signals."
           },
           "mechanism": { "type": "string" },
-          "interceptable": { "type": "boolean" },
+          "interceptable": {
+            "type": "boolean",
+            "description": "Deprecated since 1.3.0: true only when the host was shown defeatable, so false conflates \"shown resistant\" with \"not determined\". Read interceptability instead. Kept for one minor version."
+          },
+          "interceptability": {
+            "type": "string",
+            "enum": ["yes", "no", "not-established"],
+            "description": "Whether a trusted-CA attacker was shown to defeat the host (1.3.0). \"yes\" for open, metadata and name-validation; \"no\" for spki; \"not-established\" for key-pinned (the cloned-issuer wave did not separate a key check from name validation) and inconclusive. \"not-established\" is not a weaker \"no\"."
+          },
           "passthrough": {
             "type": "boolean",
             "description": "The host was relayed to its real server untouched and not tested (schema 1.2.0); its verdict is inconclusive and caveat says so."

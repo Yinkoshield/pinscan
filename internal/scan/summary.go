@@ -7,8 +7,9 @@ import "github.com/yinkoshield/pinscan/internal/classify"
 //
 // Passthrough hosts are inconclusive, so they count in Inconclusive (and in
 // ByVerdict) as well as in Passthrough: a consumer gating on Inconclusive sees
-// every untested host. [Summary.NotVerified] and [Summary.Hardened] give the
-// disjoint buckets a tally line prints.
+// every untested host. The tally line prints disjoint buckets that sum to
+// Hosts: Interceptable, [Summary.NotVerified], Passthrough,
+// [Summary.Undetermined] and [Summary.Hardened].
 type Summary struct {
 	Hosts         int `json:"hosts_total"`
 	Interceptable int `json:"interceptable"`
@@ -23,8 +24,18 @@ type Summary struct {
 // the scan tried to test and got no usable signal from.
 func (s Summary) NotVerified() int { return s.Inconclusive - s.Passthrough }
 
-// Hardened is the hosts with a hardened verdict (key-pinned or spki).
-func (s Summary) Hardened() int { return s.Hosts - s.Interceptable - s.Inconclusive }
+// Hardened is the hosts shown to resist a trusted-CA attacker: spki only. It is
+// a direct count, not a remainder, so a verdict that belongs in no bucket can
+// never be absorbed into this one. A key-pinned host is a candidate, not a
+// result (see [Summary.Undetermined]), and is not counted here.
+func (s Summary) Hardened() int { return s.ByVerdict[classify.SPKI.String()] }
+
+// Undetermined is the key-pinned hosts: they rejected a forged leaf with a
+// certificate alert, but the cloned-issuer wave returned no usable signal, or
+// never ran, so the scan did not separate a key-level check from name
+// validation. Such a host is not shown interceptable and not shown hardened;
+// it is reported as "not established" rather than as either.
+func (s Summary) Undetermined() int { return s.ByVerdict[classify.KeyPinned.String()] }
 
 // Summarize counts the host results by verdict. ByVerdict always carries an
 // entry for every verdict (zero when none), so a consumer can rely on the keys.

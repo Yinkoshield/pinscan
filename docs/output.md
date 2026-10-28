@@ -27,7 +27,7 @@ its JSON Schema with `pinscan schema`.
 
 ```jsonc
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "tool": { "name": "pinscan", "version": "1.2.3" },
   "scan": {                       // deterministic inputs
     "package": "com.example.app",
@@ -50,7 +50,8 @@ its JSON Schema with `pinscan schema`.
       "verdict": "spki",
       "confidence": "high",
       "mechanism": "Rejected every forged chain, including the cloned-issuer chain: …",
-      "interceptable": false,
+      "interceptable": false,         // deprecated since 1.3.0: read interceptability
+      "interceptability": "no",       // 1.3.0: "yes", "no" or "not-established"
       "waves": [
         { "wave": "generic", "outcome": "rejected", "reason": "tls_alert_bad_certificate" },
         { "wave": "cloned",  "outcome": "rejected", "reason": "tls_alert_bad_certificate" },
@@ -63,6 +64,7 @@ its JSON Schema with `pinscan schema`.
       "confidence": "low",
       "mechanism": "No usable signal: …",
       "interceptable": false,
+      "interceptability": "not-established",
       "passthrough": true,        // 1.2.0: relayed to the real server, not tested
       "caveat": "passthrough: relayed to the real server, not tested",
       "waves": [
@@ -86,6 +88,17 @@ the research CA was established; when it is `unverified`, `spki` and
 not trust the CA rejects every forged chain exactly like a pinned one. The
 `mechanism` field is a plain-language account of the observed behaviour, not an
 identification of the pinning implementation.
+
+`interceptability` (1.3.0) says whether a trusted-CA attacker was shown to
+defeat the host, and it is three-valued because three states are real: `yes`
+(`open`, `metadata`, `name-validation`), `no` (`spki`) and `not-established`
+(`key-pinned`, whose cloned-issuer wave did not separate a key check from name
+validation, and `inconclusive`). `not-established` is not a weaker `no`. The
+boolean `interceptable` is deprecated since 1.3.0, kept for one minor version:
+it is true only when the host was shown defeatable, so its `false` conflates
+"shown resistant" with "not determined". The Markdown and HTML tables print the
+three-valued field, and their tally lines show key-pinned hosts as "undetermined
+(key-pinned)", separate from "hardened", which counts `spki` only.
 
 A host with `"passthrough": true` was relayed to its real server untouched
 (`-passthrough`, or `passthrough: true` in the policy) and **not tested**: its
@@ -169,7 +182,11 @@ The `-report *.json` artifact also embeds these exchanges per host;
 | interceptable (`open`/`metadata`/`name-validation`) | `error` | `<failure>` |
 | `inconclusive` | `warning` | `<skipped>` |
 | `inconclusive`, passthrough host | no result (nothing was tested) | `<skipped>` with the caveat as the message |
-| `key-pinned` / `spki` | `note` | pass |
+| `key-pinned` (not established) | `warning` | `<skipped>` with the mechanism as the message |
+| `spki` | `note` | pass |
+
+Only `spki` passes: a CI run never goes green on a verdict the scan did not
+establish.
 
 SARIF results carry a per-host location so code-scanning UIs display them, and a
 stable `partialFingerprints` entry so findings deduplicate across runs.

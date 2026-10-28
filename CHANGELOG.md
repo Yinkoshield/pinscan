@@ -7,6 +7,28 @@ All notable changes to pinscan are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`key-pinned` is no longer reported as hardened.** The classifier defines
+  `key-pinned` as "rejected the forged leaves, but the cloned-issuer wave did
+  not separate a key check from name validation", yet the tally counted it as
+  hardened, the Markdown and HTML tables printed "no" under Interceptable,
+  JUnit passed it and SARIF filed it as an informational note. A safety claim
+  was being asserted from a wave that returned no signal. Now: the tally has
+  an "undetermined (key-pinned)" bucket and "hardened" counts `spki` only,
+  computed directly rather than as a remainder; the text output marks the row
+  `<- not established`; the JSON report gains a three-valued per-host
+  `interceptability` (`yes`, `no`, `not-established`; schema 1.3.0, additive)
+  that the Markdown and HTML tables print, with the boolean `interceptable`
+  deprecated and kept for one minor version; JUnit skips a key-pinned host
+  with the mechanism as the reason and SARIF files it as a warning;
+  `inconclusive` likewise reads "not established" instead of "no". The README
+  and methodology tables say the same. `-min-confidence high` or a policy
+  `expect: spki` makes CI refuse to pass on a key-pinned host; the default
+  gates are unchanged.
+- The README said `pinscan selftest` runs five postures; it runs six. A test
+  now pins the count to the README sentence.
+
 ### Added
 
 - **Per-host passthrough.** `-passthrough <host>` (repeatable, `*.suffix`

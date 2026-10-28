@@ -12,8 +12,10 @@ const informationURI = "https://github.com/Yinkoshield/pinscan"
 
 // SARIF writes rep as a SARIF 2.1.0 log, so a scan's findings land in a code-
 // scanning UI (e.g. the GitHub PR "Security" tab). Interceptable hosts are
-// errors, inconclusive hosts warnings, and hardened hosts notes. A passthrough
-// host yields no result: it was relayed, not tested, so there is no finding.
+// errors; hosts whose interceptability is not established (inconclusive, and
+// key-pinned, whose cloned-issuer wave did not decide) are warnings; hardened
+// (spki) hosts are notes. A passthrough host yields no result: it was relayed,
+// not tested, so there is no finding.
 func SARIF(w io.Writer, rep Report) error {
 	log := sarifLog{
 		Schema:  "https://json.schemastore.org/sarif-2.1.0.json",
@@ -57,23 +59,26 @@ func sarifResults(rep Report) []sarifResult {
 	return results
 }
 
-// SARIF result levels: interceptable hosts are errors, unverified hosts are
-// warnings, hardened hosts are informational notes.
+// SARIF result levels: interceptable hosts are errors, hosts whose
+// interceptability is not established are warnings, hardened hosts are
+// informational notes.
 const (
 	sarifError   = "error"
 	sarifWarning = "warning"
 	sarifNote    = "note"
 )
 
-// sarifLevel maps a host's verdict to a SARIF result level.
+// sarifLevel maps a host's interceptability to a SARIF result level. Only a
+// host shown resistant is a note; "not established" is a warning so a
+// key-pinned candidate is never filed as informational.
 func sarifLevel(h HostReport) string {
-	switch {
-	case h.Interceptable:
+	switch h.Interceptability {
+	case InterceptabilityYes:
 		return sarifError
-	case h.Verdict == "inconclusive":
-		return sarifWarning
-	default:
+	case InterceptabilityNo:
 		return sarifNote
+	default:
+		return sarifWarning
 	}
 }
 
@@ -83,7 +88,7 @@ func sarifRules() []sarifRule {
 		{"pinscan/open", "No TLS pinning", "The host sent a request over a forged certificate: no pinning. A trusted-CA attacker can intercept it.", sarifError},
 		{"pinscan/metadata", "Metadata validation only", "The host validates certificate subject/SAN names, not the key. Defeatable by a cloned-name certificate under a trusted CA.", sarifError},
 		{"pinscan/name-validation", "Issuer-name validation", "The host validates the issuer name/chain, not the key. Defeatable by a cloned-issuer chain under a trusted CA.", sarifError},
-		{"pinscan/key-pinned", "Key-level check candidate", "The host rejected the forged leaves; the cloned-issuer wave was inconclusive, so a key-level check is not yet separated from issuer-name validation.", sarifNote},
+		{"pinscan/key-pinned", "Key-level check candidate, not established", "The host rejected the forged leaves, but the cloned-issuer wave did not separate a key-level check from issuer-name validation. Whether a trusted-CA attacker defeats it is not established; re-run until the wave decides before treating the host as hardened.", sarifWarning},
 		{"pinscan/spki", "Rejects every forged chain", "The host rejected every forged chain, including the cloned-issuer chain: consistent with public-key pinning or a private trust store. The mechanism is not identified; a trusted-CA attacker does not intercept it under these parameters.", sarifNote},
 		{"pinscan/inconclusive", "Inconclusive", "No usable signal: the scanned surface produced no classifiable TLS request, so the posture is unverified.", sarifWarning},
 	}

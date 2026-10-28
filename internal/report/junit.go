@@ -7,9 +7,12 @@ import (
 )
 
 // JUnit writes rep as JUnit XML, so a scan's hosts appear as test cases in a CI
-// test pane. An interceptable host is a failure; an inconclusive host is skipped
-// (ran, but no signal), a passthrough host likewise with its caveat as the
-// reason (relayed, not tested); a hardened host passes.
+// test pane. An interceptable host is a failure. A host whose interceptability
+// is not established is skipped, never passed: an inconclusive host ran but gave
+// no signal, a key-pinned host's cloned-issuer wave did not decide, and a
+// passthrough host was relayed, not tested (its caveat is the reason). Only a
+// hardened (spki) host passes, so a CI run never goes green on a verdict the
+// scan did not establish.
 func JUnit(w io.Writer, rep Report) error {
 	suite := junitSuite{
 		Name:  rep.Scan.Package,
@@ -21,14 +24,14 @@ func JUnit(w io.Writer, rep Report) error {
 		case h.Passthrough:
 			suite.Skipped++
 			tc.Skipped = &junitSkipped{Message: h.Caveat}
-		case h.Interceptable:
+		case h.Interceptability == InterceptabilityYes:
 			suite.Failures++
 			tc.Failure = &junitFailure{
 				Message: fmt.Sprintf("%s (confidence: %s)", h.Verdict, h.Confidence),
 				Type:    "interceptable",
 				Text:    h.Mechanism,
 			}
-		case h.Verdict == "inconclusive":
+		case h.Interceptability == InterceptabilityNotEstablished:
 			suite.Skipped++
 			tc.Skipped = &junitSkipped{Message: h.Mechanism}
 		}
