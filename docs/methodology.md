@@ -160,60 +160,7 @@ then the trust rule, against in-process clients that emulate each posture
 trust the research CA, and a key-pinning client whose host is on the
 passthrough list) and asserts the resulting verdict. It demonstrates the
 separation end-to-end without a device, shows that an untrusted test CA reads
-<<<<<<< Updated upstream
-`inconclusive` rather than `spki`, and catches a silent regression (e.g. a
-cert-minting change that stops cloning the issuer DN) that a unit test of the
-pure classifier could not see.
-=======
 `inconclusive` rather than `spki`, that a relayed host reads `inconclusive`
 with reason `passthrough` rather than `spki`, and catches a silent regression
 (e.g. a cert-minting change that stops cloning the issuer DN) that a unit test
 of the pure classifier could not see.
-
-## Related work
-
-pinscan assembles known techniques into one repeatable tool. The lineage, and
-what pinscan takes from each:
-
-- **Fahl et al., "Why Eve and Mallory Love Android" (CCS 2012)** and
-  **Georgiev et al., "The Most Dangerous Code in the World" (CCS 2012)**
-  established that non-browser TLS clients accept forged certificates at scale.
-  **SMV-Hunter (Sounthiraraj et al., NDSS 2014)** automated the MITM test with UI
-  automation. **Frankencerts (Brubaker et al., IEEE S&P 2014)** probed validation
-  logic with mutated certificates; the "waves of forgeries" idea is in that
-  spirit.
-- **nogotofail (Google, 2014)**, https://github.com/google/nogotofail, is an
-  on-path MITM whose `selfsigned` handler clones the upstream CN and SANs under
-  its own CA (wave B here) and whose `invalidhostname` handler presents a valid
-  certificate for another domain. It declares a MITM success only when the
-  client sends a request or receives a response over the attacked connection.
-  pinscan's observed-request rule is that rule.
-- **Chothia, Garcia, Heppel and McMahon Stone, "Why Banker Bob (still) Can't
-  Get TLS Right" (FC 2017)** and **McMahon Stone, Chothia and Garcia, "Spinner:
-  Semi-Automatic Detection of Pinning without Hostname Verification" (ACSAC
-  2017)**, https://github.com/ChrisMcMStone/spinner, showed that pinning can
-  hide a missing hostname check and detected it, without root or hooks, by
-  presenting real certificates from the same issuer for another name. Wave C
-  tests the neighbouring family of mistakes (name matching on the chain) with a
-  forged chain under the research CA, so no certificate from the real issuer is
-  needed and the test runs offline.
-- **Pradeep et al., "A Comparative Analysis of Certificate Pinning in Android &
-  iOS" (IMC 2022)**, https://github.com/NEU-SNS/app-tls-pinning, measured
-  pinning per destination across 5,079 apps with a research CA in the system
-  store and a differential analysis: a destination is pinned only if it carries
-  application data without interception and never does with it. "Handshake
-  completed, no data" is treated as a confounder there too. pinscan's per-host
-  verdicts and its insistence on application data follow that design; pinscan
-  is stricter in one respect, since a TCP reset or timeout is `inconclusive`
-  here and a failure signal there.
-- **OWASP MASTG-TEST-0244, "Missing Certificate Pinning in Network Traffic"**,
-  is the industry baseline: intercept with a trusted CA, list the domains whose
-  traffic came through, judge first-party domains only.
-
-What pinscan adds on top of that lineage is the graded verdict scale, the
-explicit `inconclusive` state with its reason carried into the report, the
-confidence axis, the CI contract (exit codes, canonical baselines, the
-regression lattice, the policy file), the Android 14 APEX trust module with
-per-namespace verification, and a self-test that proves the separation without
-a device.
->>>>>>> Stashed changes
