@@ -230,6 +230,13 @@ it with the Android NDK via `build.sh`. Releases are cut with
 [goreleaser](.goreleaser.yaml). The engineering bar (test-first, strict lint,
 pure classifier, coverage honesty) is in [ENGINEERING.md](ENGINEERING.md).
 
+## Acknowledgements
+
+The approach builds on Google's nogotofail (2014), the Spinner work of
+McMahon Stone, Chothia and Garcia (2017) and the pinning measurement pipeline
+of Pradeep et al. (IMC 2022). What pinscan takes from each, and what it adds,
+is in [Methodology](docs/methodology.md#related-work).
+
 ## Contributing and security
 
 Pull requests are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) first. Report
