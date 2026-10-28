@@ -29,6 +29,8 @@ deeper than the top-level [README](../README.md).
 ## Reference
 
 - **[Command reference](commands.md)** — every subcommand and flag.
+- **[Validation matrix](validation.md)** — expected verdicts per known client
+  posture and per broken setup, with the device-side kit that checks them.
 - **[Troubleshooting](troubleshooting.md)** — common failures and fixes.
 - **[Architecture](architecture.md)** — package layout and data flow, for
   contributors.

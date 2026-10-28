@@ -1,0 +1,52 @@
+// pinscan validation app. One product flavor per client posture; each flavor
+// is its own package (<applicationId>.<posture>), so `pinscan scan` targets one
+// posture per run and the report's `scan.package` names it.
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.yinkoshield.pinscan.validation'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.yinkoshield.pinscan.validation'
+        minSdk 24          // Network Security Config needs API 24.
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+        // Which Network Security Config the manifest points at; flavors override.
+        manifestPlaceholders = [nsc: 'nsc_plain']
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    flavorDimensions += 'posture'
+    productFlavors {
+        // name           NSC file      what the client does (see README.md)
+        nopin        { dimension 'posture'; applicationIdSuffix '.nopin';        buildConfigField 'String', 'POSTURE', '"nopin"' }
+        nscok        { dimension 'posture'; applicationIdSuffix '.nscok';        buildConfigField 'String', 'POSTURE', '"nscok"';        manifestPlaceholders = [nsc: 'nsc_pinned'] }
+        nscwrong     { dimension 'posture'; applicationIdSuffix '.nscwrong';     buildConfigField 'String', 'POSTURE', '"nscwrong"';     manifestPlaceholders = [nsc: 'nsc_wrong'] }
+        okhttp       { dimension 'posture'; applicationIdSuffix '.okhttp';       buildConfigField 'String', 'POSTURE', '"okhttp"' }
+        trustmanager { dimension 'posture'; applicationIdSuffix '.trustmanager'; buildConfigField 'String', 'POSTURE', '"trustmanager"' }
+        webview      { dimension 'posture'; applicationIdSuffix '.webview';      buildConfigField 'String', 'POSTURE', '"webview"' }
+        netproc      { dimension 'posture'; applicationIdSuffix '.netproc';      buildConfigField 'String', 'POSTURE', '"netproc"' }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        // The app is a test fixture; lint findings must not block a build.
+        abortOnError false
+    }
+}
+
+dependencies {
+    // The only third-party dependency: the OkHttp posture needs CertificatePinner.
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}

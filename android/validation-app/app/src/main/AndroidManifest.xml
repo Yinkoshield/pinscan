@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- ${nsc} is a manifest placeholder set per flavor in app/build.gradle:
+         nsc_plain (no pins), nsc_pinned (correct pins) or nsc_wrong (bogus pin). -->
+    <application
+        android:label="pinscan validation"
+        android:networkSecurityConfig="@xml/${nsc}"
+        android:usesCleartextTraffic="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Used by the netproc posture only: the TLS client runs in a second
+             process named <package>:net, which the scoped-mode module does not
+             match (it compares the process name with the package name). -->
+        <service
+            android:name=".NetService"
+            android:exported="false"
+            android:process=":net" />
+    </application>
+</manifest>

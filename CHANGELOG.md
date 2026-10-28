@@ -20,6 +20,19 @@ All notable changes to pinscan are recorded here. The format follows
   (schema 1.1.0, additive); Markdown and HTML show it in the header.
 - `pinscan selftest` has a fifth posture, a client that does not trust the
   research CA, and asserts it reads `inconclusive`, not `spki`.
+- **Device-side validation kit.** [docs/validation.md](docs/validation.md)
+  states the expected verdict, `ca_trust` and per-wave evidence for each known
+  client posture (no pinning, Network Security Config pin sets correct and
+  wrong, OkHttp `CertificatePinner`, a custom `TrustManager`, WebView, a
+  multi-process app) and for three broken setups (research CA absent, a
+  different CA with the same subject, the scoped module not covering the
+  process). `android/validation-app/` is a small Gradle app with one product
+  flavor per posture, and `scripts/validate-device.sh` runs `doctor`, one scan
+  per posture, and compares the results, exiting non-zero on any mismatch.
+  Run on Android 14 with Magisk 30.7: every row matched except one that
+  records an open finding, a false `spki` in scoped mode for an app whose
+  TLS client runs in a second process (`<package>:net`), which the
+  `ykzpinscan` module does not bind and the trust probe does not inspect.
 
 ### Changed
 
