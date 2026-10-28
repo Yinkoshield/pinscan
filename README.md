@@ -14,7 +14,7 @@
   <a href="https://github.com/yinkoshield/pinscan/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/yinkoshield/pinscan?style=flat-square"></a>
   <a href="https://github.com/yinkoshield/pinscan/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/yinkoshield/pinscan/ci.yml?branch=main&style=flat-square&label=ci"></a>
   <a href="https://pkg.go.dev/github.com/yinkoshield/pinscan"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/yinkoshield/pinscan.svg"></a>
-  <a href="go.mod"><img alt="Go 1.21+" src="https://img.shields.io/badge/go-1.21%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
+  <a href="go.mod"><img alt="Go 1.26+" src="https://img.shields.io/badge/go-1.26%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
   <a href="SECURITY.md"><img alt="Authorized use only" src="https://img.shields.io/badge/use-authorized%20testing%20only-orange?style=flat-square"></a>
 </p>
@@ -65,7 +65,7 @@ three.
 ## Installation
 
 ```sh
-# Go 1.21+
+# Go 1.26+ (an older Go downloads the right toolchain automatically)
 go install github.com/yinkoshield/pinscan/cmd/pinscan@latest
 ```
 

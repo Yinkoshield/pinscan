@@ -32,7 +32,7 @@ func JUnit(w io.Writer, rep Report) error {
 	}
 
 	doc := junitSuites{
-		Name:     "pinscan",
+		Name:     toolName,
 		Tests:    suite.Tests,
 		Failures: suite.Failures,
 		Suites:   []junitSuite{suite},

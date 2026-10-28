@@ -86,7 +86,7 @@ type transcriptDoc struct {
 
 func writeTranscriptJSON(w io.Writer, meta Meta, rec *capture.Recorder) error {
 	doc := transcriptDoc{
-		Tool:      Tool{Name: "pinscan", Version: meta.ToolVersion},
+		Tool:      Tool{Name: toolName, Version: meta.ToolVersion},
 		Package:   meta.Package,
 		Exchanges: Transcript(rec),
 	}
@@ -141,7 +141,7 @@ func writeHAR(w io.Writer, meta Meta, rec *capture.Recorder) error {
 	}
 	doc := harDoc{Log: harLog{
 		Version: "1.2",
-		Creator: Tool{Name: "pinscan", Version: meta.ToolVersion},
+		Creator: Tool{Name: toolName, Version: meta.ToolVersion},
 		Entries: entries,
 	}}
 	enc := json.NewEncoder(w)

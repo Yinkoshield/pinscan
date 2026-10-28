@@ -28,7 +28,9 @@ pull request that cannot be merged. Good first contributions:
 
 ## Development setup
 
-You need Go 1.21 or newer. Nothing else is required for the Go code.
+You need Go 1.26 or newer; with an older Go 1.21+ install, the `go` command
+downloads the toolchain `go.mod` asks for automatically. Nothing else is
+required for the Go code.
 
 ```sh
 git clone https://github.com/yinkoshield/pinscan.git

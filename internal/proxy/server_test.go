@@ -140,7 +140,7 @@ func TestServerClonedWaveWithoutRealCertFailsCleanly(t *testing.T) {
 func startServer(t *testing.T, ca *certmint.CA, wave proxy.Wave, realFor proxy.RealCertFunc, obs *proxy.Observer) string {
 	t.Helper()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -161,7 +161,7 @@ func startServer(t *testing.T, ca *certmint.CA, wave proxy.Wave, realFor proxy.R
 func connectAndHandshake(t *testing.T, proxyAddr, host string, clientCfg *tls.Config) error {
 	t.Helper()
 
-	conn, err := net.DialTimeout("tcp", proxyAddr, 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(t.Context(), "tcp", proxyAddr)
 	if err != nil {
 		t.Fatalf("dial proxy: %v", err)
 	}
@@ -187,7 +187,7 @@ func connectAndHandshake(t *testing.T, proxyAddr, host string, clientCfg *tls.Co
 	}
 
 	tlsConn := tls.Client(conn, clientCfg)
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(t.Context()); err != nil {
 		return err
 	}
 	// A successful handshake alone is no longer "accepted": the server probes
@@ -202,7 +202,7 @@ func connectAndHandshake(t *testing.T, proxyAddr, host string, clientCfg *tls.Co
 func handshakeNoRequest(t *testing.T, proxyAddr, host string, clientCfg *tls.Config) {
 	t.Helper()
 
-	conn, err := net.DialTimeout("tcp", proxyAddr, 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(t.Context(), "tcp", proxyAddr)
 	if err != nil {
 		t.Fatalf("dial proxy: %v", err)
 	}
@@ -220,7 +220,7 @@ func handshakeNoRequest(t *testing.T, proxyAddr, host string, clientCfg *tls.Con
 	}
 	_ = resp.Body.Close()
 	tlsConn := tls.Client(conn, clientCfg)
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(t.Context()); err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
 	_ = tlsConn.Close() // Close without a request.
@@ -244,7 +244,7 @@ func waitForOutcome(t *testing.T, obs *proxy.Observer, host string, want classif
 func drainAfter(t *testing.T, proxyAddr, request string) {
 	t.Helper()
 
-	conn, err := net.DialTimeout("tcp", proxyAddr, 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(t.Context(), "tcp", proxyAddr)
 	if err != nil {
 		t.Fatalf("dial proxy: %v", err)
 	}

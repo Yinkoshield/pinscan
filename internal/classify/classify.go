@@ -128,7 +128,7 @@ var verdictStrength = map[Verdict]int{
 func (v Verdict) Strength() int { return verdictStrength[v] }
 
 // AtLeast reports whether v is at least as hardened as min.
-func (v Verdict) AtLeast(min Verdict) bool { return v.Strength() >= min.Strength() }
+func (v Verdict) AtLeast(floor Verdict) bool { return v.Strength() >= floor.Strength() }
 
 // ParseVerdict maps a verdict name to a Verdict.
 func ParseVerdict(s string) (Verdict, bool) {

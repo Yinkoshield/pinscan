@@ -123,7 +123,7 @@ func (cfg Config) serverOpts(extra ...proxy.ServerOption) []proxy.ServerOption {
 func (cfg Config) serveWhileDriving(ctx context.Context, log *slog.Logger, srv *proxy.Server) error {
 	host, scoped := cfg.bindHost()
 	addr := net.JoinHostPort(host, strconv.Itoa(cfg.Port))
-	ln, err := net.Listen("tcp", addr)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("scan: listen on %s: %w", addr, err)
 	}
@@ -134,7 +134,11 @@ func (cfg Config) serveWhileDriving(ctx context.Context, log *slog.Logger, srv *
 	go func() { serveErr <- srv.Serve(ln) }()
 	defer func() {
 		_ = ln.Close()
-		<-serveErr
+		// A closed listener returns nil; anything else happened during the
+		// window and is worth a line, but the observations stand.
+		if err := <-serveErr; err != nil {
+			log.Warn("proxy stopped with an error", "err", err)
+		}
 	}()
 	return cfg.driveTarget(ctx, log)
 }
@@ -224,7 +228,7 @@ func observerObservations(obs *proxy.Observer) map[string]WaveObservation {
 // reach the proxy over the LAN. The UDP "connection" sends nothing; it only
 // selects the outbound interface.
 func LocalIP() (string, error) {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "udp", "8.8.8.8:80")
 	if err != nil {
 		return "", fmt.Errorf("scan: detect local IP: %w", err)
 	}

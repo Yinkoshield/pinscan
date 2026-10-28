@@ -134,6 +134,9 @@ func pinningConfig(accept func(leaf *x509.Certificate) bool) *tls.Config {
 	return &tls.Config{
 		InsecureSkipVerify: true, //nolint:gosec // emulates a pinning client that verifies the leaf itself below.
 		MinVersion:         tls.VersionTLS12,
+		// No ClientSessionCache is set and tickets are off, so every connection
+		// performs a full handshake and VerifyPeerCertificate always runs.
+		SessionTicketsDisabled: true,
 		VerifyPeerCertificate: func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 			if len(rawCerts) == 0 {
 				return errors.New("selftest: no certificate presented")
@@ -163,9 +166,9 @@ func spki(cert *x509.Certificate) []byte {
 // with the posture's client connecting to it.
 func waveFunc(ca *certmint.CA, realLeaf *x509.Certificate, clientCfg *tls.Config) scan.WaveFunc {
 	realFor := func(string) *x509.Certificate { return realLeaf }
-	return func(_ context.Context, wave proxy.Wave) (map[string]scan.WaveObservation, error) {
+	return func(ctx context.Context, wave proxy.Wave) (map[string]scan.WaveObservation, error) {
 		obs := proxy.NewObserver()
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 		if err != nil {
 			return nil, fmt.Errorf("selftest: listen: %w", err)
 		}
@@ -173,10 +176,12 @@ func waveFunc(ca *certmint.CA, realLeaf *x509.Certificate, clientCfg *tls.Config
 		done := make(chan error, 1)
 		go func() { done <- srv.Serve(ln) }()
 
-		runClient(ln.Addr().String(), clientCfg)
+		runClient(ctx, ln.Addr().String(), clientCfg)
 
 		_ = ln.Close()
-		<-done
+		if err := <-done; err != nil { // A closed listener returns nil.
+			return nil, fmt.Errorf("selftest: proxy: %w", err)
+		}
 
 		out := make(map[string]scan.WaveObservation)
 		for _, h := range obs.Hosts() {
@@ -190,8 +195,8 @@ func waveFunc(ca *certmint.CA, realLeaf *x509.Certificate, clientCfg *tls.Config
 // runClient performs the client half against the loopback proxy: CONNECT, a TLS
 // handshake with clientCfg, and — on success — a minimal request so the server
 // records an observed use. Errors are expected for pinning postures and ignored.
-func runClient(proxyAddr string, clientCfg *tls.Config) {
-	conn, err := net.DialTimeout("tcp", proxyAddr, 5*time.Second)
+func runClient(ctx context.Context, proxyAddr string, clientCfg *tls.Config) {
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		return
 	}
@@ -209,7 +214,7 @@ func runClient(proxyAddr string, clientCfg *tls.Config) {
 	_ = resp.Body.Close()
 
 	tlsConn := tls.Client(conn, clientCfg)
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		return
 	}
 	_, _ = fmt.Fprintf(tlsConn, "GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", host)

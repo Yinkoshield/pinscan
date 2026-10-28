@@ -7,6 +7,15 @@ All notable changes to pinscan are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Toolchain: Go 1.26 (the `go` directive is now `1.26.0`; older Go installs
+  download it automatically) and golangci-lint v2.15.0 with the configuration
+  migrated to the v2 schema. `gosimple` is now part of `staticcheck`, `tenv` is
+  replaced by `usetesting`, and `gofumpt`/`goimports` run as formatters. The
+  default exclusion that waived missing doc comments is no longer applied. CI
+  reads the Go version from `go.mod`.
+
 ## [1.0.0] - 2026-10-28
 
 First public release.

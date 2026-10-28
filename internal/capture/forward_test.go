@@ -96,7 +96,7 @@ func TestForwardRedactsRecordButForwardsRealHeaders(t *testing.T) {
 	var gotAuth string
 	srv, fwd := upstream(t, capture.DefaultBodyCap, func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		http.SetCookie(w, &http.Cookie{Name: "sess", Value: "secret"})
+		http.SetCookie(w, &http.Cookie{Name: "sess", Value: "secret", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		w.WriteHeader(http.StatusOK)
 	})
 
