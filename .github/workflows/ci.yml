@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          check-latest: false
+      - name: Verify modules
+        run: go mod verify
+      - name: gofmt (the local gate formats; CI refuses unformatted code)
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then echo "unformatted:"; echo "$out"; exit 1; fi
+      - name: No build outputs committed
+        run: |
+          if git ls-files | grep -Ex 'pinscan(\.exe)?|bin/.*|dist/.*'; then
+            echo "build output is tracked; remove it"; exit 1
+          fi
+      - name: Test (race + coverage)
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Selftest (methodology proof)
+        run: go run ./cmd/pinscan selftest
+      - name: Build
+        run: go build -trimpath -ldflags "-s -w" -o bin/pinscan ./cmd/pinscan
+      - name: Reproducible build (byte-identical)
+        run: make repro
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.55.2

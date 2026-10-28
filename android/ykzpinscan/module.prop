@@ -1,0 +1,6 @@
+id=ykzpinscan
+name=YKZ-Pinscan (SSL-pinning posture, research)
+version=1.0
+versionCode=1
+author=yinkoshield
+description=Research-only. Per-app Conscrypt-APEX CA bind for packages listed in /data/adb/ykzpinscan/targets, to evaluate SSL-pinning posture with the pinscan proxy harness. Boot-safe (only runs at app fork).

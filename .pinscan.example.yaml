@@ -1,0 +1,24 @@
+# .pinscan.example.yaml — per-host expectations and accepted risks.
+#
+# Copy to .pinscan.yaml, commit it, and gate CI with:
+#   pinscan scan <package> -policy .pinscan.yaml -fail-on-interceptable
+#
+# Every host entry needs a `reason` (loading fails otherwise), so an accepted
+# risk is always documented, never silently hidden.
+
+hosts:
+  # Require a host to pin its key; fail if it is weaker than spki.
+  secure.bank.example:
+    expect: spki
+    reason: "primary banking API — a trusted-CA attacker must not intercept it"
+
+  # A host allowed to be interceptable: an accepted risk, surfaced as such and
+  # exempt from -fail-on-interceptable.
+  analytics.vendor.example:
+    allow: true
+    reason: "third-party analytics SDK; no credentials or PII sent from the app"
+
+  # A host excluded from all gating (still shown in the report).
+  legacy.example:
+    ignore: true
+    reason: "deprecated endpoint, removed in the next release"

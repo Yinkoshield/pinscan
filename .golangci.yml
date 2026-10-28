@@ -1,0 +1,93 @@
+# Strict, idiomatic-Go linting. Pedantic by intent: the tool is a reference for
+# how YinkoShield writes code, so the bar is high but never fights Go idiom
+# (short receiver names, etc. stay).
+run:
+  timeout: 3m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    # Correctness / the staticcheck family.
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # Error-handling discipline.
+    - errorlint
+    - errname
+    - nilerr
+    - bodyclose
+    - noctx
+    # Style / clarity.
+    - revive
+    - gocritic
+    - gofumpt
+    - goimports
+    - misspell
+    - godot
+    - whitespace
+    - unconvert
+    - unparam
+    - predeclared
+    - nakedret
+    - forcetypeassert
+    - makezero
+    - goconst
+    - prealloc
+    # Exhaustiveness of enum switches.
+    - exhaustive
+    # Complexity budgets.
+    - gocyclo
+    - gocognit
+    # Security.
+    - gosec
+    # Test hygiene.
+    - tenv
+    - thelper
+    - tparallel
+    - paralleltest
+    # Keep //nolint honest.
+    - nolintlint
+
+linters-settings:
+  exhaustive:
+    default-signifies-exhaustive: true
+  gocyclo:
+    min-complexity: 12
+  gocognit:
+    min-complexity: 15
+  misspell:
+    locale: US
+  godot:
+    scope: declarations
+    capital: true
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+    allow-unused: false
+  revive:
+    rules:
+      - name: exported
+      - name: package-comments
+      - name: var-naming
+      - name: receiver-naming
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: if-return
+      - name: unreachable-code
+      - name: redefines-builtin-id
+      - name: superfluous-else
+      - name: unused-parameter
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    # Table-driven tests legitimately repeat structure.
+    - path: _test\.go
+      linters:
+        - dupl

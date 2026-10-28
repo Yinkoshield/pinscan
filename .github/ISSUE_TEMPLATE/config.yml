@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/yinkoshield/pinscan/security/advisories/new
+    about: Private report to the maintainers. Never open a public issue for a security problem.
+  - name: Troubleshooting guide
+    url: https://github.com/yinkoshield/pinscan/blob/main/docs/troubleshooting.md
+    about: The failures people actually hit, with fixes. Check here before filing a bug.

@@ -1,0 +1,43 @@
+pinscan
+Copyright 2026 Yinkozi Group
+
+This product is developed by Yinkozi Group as part of YinkoShield.
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+pinscan evaluates the TLS-pinning posture of Android apps for authorized
+security assessment. It is a posture-evaluation tool, not an interception tool
+for third-party traffic. "YinkoShield", "Yinkozi", "EEI", and "Execution
+Evidence Infrastructure" are names of Yinkozi Group; this license grants no
+permission to use them (see section 6 of the License), and claiming EEI
+compatibility requires Yinkozi's authorization.
+
+This repository contains the posture scanner only. The managed runtime used to
+scan hardened production apps with active RASP is offered as an authorized
+engagement and is not distributed here.
+
+Third-party components
+----------------------
+
+Go module dependencies (compiled into the pinscan binary):
+
+  - gopkg.in/yaml.v3
+    Copyright 2011-2019 Canonical Ltd. and contributors.
+    Licensed under the Apache License 2.0; portions (the original go-yaml
+    parser, derived from libyaml) under the MIT License.
+
+  - github.com/andybalholm/brotli
+    Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors;
+    Go port by Andy Balholm. Licensed under the MIT License.
+
+Android module sources (android/ykzpinscan/):
+
+  - android/ykzpinscan/jni/zygisk.hpp — the public Zygisk module API header.
+    Copyright 2022-2023 John "topjohnwu" Wu. Distributed under its own
+    permission notice (ISC-style), reproduced at the top of the file:
+    "Permission to use, copy, modify, and/or distribute this software for any
+    purpose with or without fee is hereby granted." The file is included
+    unmodified, as its header requires.
+
+The full license texts of these components are available in their respective
+upstream repositories and in the Go module cache (go mod download).

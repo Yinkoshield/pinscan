@@ -1,0 +1,112 @@
+# Methodology
+
+pinscan measures one thing: **does a TLS client trust a certificate we mint,
+and does it use the connection?** It makes the client trust a research CA, then
+presents forged certificates of increasing fidelity and watches what the client
+does. No Frida, no hooks, no repackaging — the app runs unmodified.
+
+## The three waves
+
+For each host the client contacts, pinscan can present up to three forged
+certificates, every one signed by the research CA the client now trusts. They
+differ only in how closely they imitate the real endpoint:
+
+| Wave | Certificate | Signed by | What acceptance reveals |
+|------|-------------|-----------|-------------------------|
+| **A** `generic` | leaf with a generic identity for the host | research CA | no pinning at all |
+| **B** `cloned-metadata` | leaf copying the real leaf's subject + SANs, **our key** | research CA | validates certificate *names* only |
+| **C** `cloned-issuer` | that leaf under an intermediate whose DN **clones the real issuer** | research CA | validates the issuer *name/chain*, **not the key** |
+
+No forged certificate ever uses the real endpoint's private key — pinscan does
+not have it. That is exactly what genuine public-key pinning detects.
+
+Wave A and B always run. Wave C runs only when some host genuinely rejected both
+A and B (i.e. it looks key-pinned and C can refine the finding).
+
+## The verdicts
+
+| Verdict | Meaning | Interceptable by a trusted-CA attacker |
+|---------|---------|:---:|
+| `open` | sent a request over the generic leaf — no pinning | **yes** |
+| `metadata` | rejected generic, accepted the cloned-metadata leaf | **yes** |
+| `name-validation` | rejected the leaves, accepted the cloned-issuer chain | **yes** |
+| `key-pinned` | genuinely rejected the forged leaves; wave C inconclusive | no |
+| `spki` | genuinely rejected everything, incl. the cloned issuer | no |
+| `inconclusive` | no usable signal (see below) | no |
+
+"Interceptable" means: an attacker holding **any** certificate the device trusts
+(a mis-issued cert, a compromised or coerced CA, an enterprise MITM root) could
+read and modify that host's traffic. `open`, `metadata` and `name-validation`
+are all defeated that way; only `spki` resists.
+
+`pinscan scan -explain` prints a one-line account of each verdict's mechanism.
+
+## The honesty rules — never "secure" from silence
+
+A posture tool is dangerous if it reports "hardened" when it simply didn't see
+anything. pinscan is built so that **an absence of signal is never a pass.**
+
+### Acceptance requires an observed request, not just a handshake
+
+An app can complete the TLS handshake with the research CA and then reject the
+connection at the application layer (e.g. OkHttp's `CertificatePinner`, which
+pins *after* the handshake). So a host is `open` only when the client actually
+**sent a request** over the forged certificate. A handshake with no request is
+`inconclusive`, never `open`.
+
+### Only a genuine certificate rejection counts as pinning
+
+A host is `spki` / `key-pinned` only when the client refused with a
+**certificate-class TLS alert** (`bad_certificate`, `unknown_ca`,
+`certificate_unknown`, …). Every other reason a handshake can fail —
+
+- a timeout or a TCP reset,
+- a non-certificate alert (e.g. `handshake_failure` from cipher negotiation),
+- the client sending no request after the handshake,
+- pinscan's own failure to present a forged certificate (e.g. it could not fetch
+  the real certificate for a cloned wave),
+
+— is recorded **`inconclusive`**, never as a false "hardened". The per-wave
+evidence (outcome + reason) is carried into the [report](output.md), so a
+verdict is auditable rather than a bare label.
+
+### Inconclusive is surfaced, not hidden
+
+The scan tally always reports the inconclusive count ("2 interceptable, 1
+inconclusive (not verified), 0 hardened"), and the CI gates treat a
+decided→inconclusive change as **needs-review**, not a silent pass. See
+[CI integration](ci.md).
+
+## Confidence
+
+Every verdict carries a confidence — `low`, `medium`, or `high` — a separate
+axis from the verdict, so a one-shot result is not mistaken for a well-tested
+one:
+
+- **high** — the deciding wave was backed by **two or more** consistent attempts.
+- **medium** — a single observation, or a `key-pinned` candidate (capped at
+  medium because wave C did not conclusively confirm SPKI).
+- **low** — attempts conflicted (one accepted, another genuinely rejected), or
+  the verdict is `inconclusive`.
+
+`pinscan scan -min-confidence high` makes CI require that a "hardened" pass is
+well-evidenced rather than a fluke.
+
+## Scope, stated honestly
+
+Trust-store injection answers *"does the client trust a certificate under an
+injected CA?"*. It cleanly separates **not-pinned** from **hardened**, and wave
+C separates key pinning from name/chain validation. It does **not** identify the
+pinning *mechanism* (an SPKI pin set vs. a private baked-in trust store vs. CT
+enforcement) — that is a reverse-engineering follow-up. A `spki` verdict means
+"resists a trusted-CA attacker under these parameters, at this time," not "cannot
+be bypassed by any means."
+
+## Proving it
+
+`pinscan selftest` runs the real `certmint → proxy → observer → classify` path
+against in-process clients that emulate each posture (no-pin, metadata,
+name-validation, SPKI) and asserts the resulting verdict. It demonstrates the
+separation end-to-end without a device, and catches a silent regression (e.g. a
+cert-minting change that stops cloning the issuer DN) that a unit test of the
+pure classifier could not see.

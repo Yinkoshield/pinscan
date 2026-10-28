@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://yinkoshield.github.io/pinscan/pinscan.v1.schema.json",
+  "title": "pinscan report",
+  "description": "Versioned output contract of the pinscan SSL-pinning posture scanner. A consumer must refuse a schema_version whose MAJOR it does not recognise; additive fields bump MINOR.",
+  "type": "object",
+  "required": ["schema_version", "tool", "scan", "summary", "hosts"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of this contract."
+    },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "scan": {
+      "type": "object",
+      "required": ["package", "mode", "transparent", "window_seconds", "ca_sha256", "waves_run"],
+      "properties": {
+        "package": { "type": "string" },
+        "mode": { "type": "string", "enum": ["scoped", "system"] },
+        "transparent": { "type": "boolean" },
+        "window_seconds": { "type": "integer", "minimum": 0 },
+        "ca_sha256": { "type": "string" },
+        "waves_run": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["generic", "cloned", "issuer"] }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["hosts_total", "interceptable", "inconclusive", "by_verdict"],
+      "properties": {
+        "hosts_total": { "type": "integer", "minimum": 0 },
+        "interceptable": { "type": "integer", "minimum": 0 },
+        "inconclusive": { "type": "integer", "minimum": 0 },
+        "by_verdict": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["host", "verdict", "confidence", "mechanism", "interceptable"],
+        "properties": {
+          "host": { "type": "string" },
+          "verdict": {
+            "type": "string",
+            "enum": ["open", "metadata", "name-validation", "key-pinned", "spki", "inconclusive"]
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["low", "medium", "high"],
+            "description": "How well-evidenced the verdict is: attempt count and conflicting signals."
+          },
+          "mechanism": { "type": "string" },
+          "interceptable": { "type": "boolean" },
+          "waves": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["wave", "outcome", "reason"],
+              "properties": {
+                "wave": { "type": "string", "enum": ["generic", "cloned", "issuer"] },
+                "outcome": {
+                  "type": "string",
+                  "enum": ["accepted", "rejected", "ambiguous", "not-observed"]
+                },
+                "reason": { "type": "string" }
+              }
+            }
+          },
+          "exchanges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["method", "url"],
+              "properties": {
+                "method": { "type": "string" },
+                "url": { "type": "string" },
+                "status": { "type": "integer" },
+                "request_headers": { "type": "object" },
+                "request_body": { "type": "string" },
+                "request_truncated": { "type": "boolean" },
+                "response_headers": { "type": "object" },
+                "response_body": { "type": "string" },
+                "response_truncated": { "type": "boolean" },
+                "error": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "description": "Volatile run facts, omitted in canonical (baseline) output.",
+      "properties": {
+        "started_at": { "type": "string" },
+        "duration_seconds": { "type": "number" }
+      }
+    }
+  }
+}

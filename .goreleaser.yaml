@@ -1,0 +1,52 @@
+# goreleaser configuration for pinscan.
+# Local release artifacts can also be produced without goreleaser via `make dist`.
+version: 2
+
+project_name: pinscan
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: pinscan
+    main: ./cmd/pinscan
+    binary: pinscan
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    # Reproducible builds: pin the embedded timestamp to the commit.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: pinscan
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+
+checksum:
+  name_template: "SHA256SUMS"
+  algorithm: sha256
+
+sboms:
+  - artifacts: archive # requires `syft` on the release host; produces CycloneDX SBOMs.
+
+release:
+  draft: true # a human publishes after review.
+
+changelog:
+  use: github
+  sort: asc

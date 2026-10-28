@@ -1,0 +1,14 @@
+# Build outputs. `make build` writes to bin/; a bare `go build` at the root
+# writes ./pinscan. Neither is ever committed: releases are built by goreleaser.
+bin/
+dist/
+/pinscan
+/pinscan.exe
+coverage.out
+.DS_Store
+
+# Android NDK build artifacts (the committed .so is android/ykzpinscan/zygisk/<abi>.so)
+android/ykzpinscan/obj/
+android/ykzpinscan/libs/
+# A user's own research CA dropped into the module (never commit a CA)
+android/ykzpinscan/cacerts/*.0

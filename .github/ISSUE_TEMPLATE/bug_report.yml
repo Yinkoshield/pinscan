@@ -1,0 +1,52 @@
+name: Bug report
+description: Something pinscan does is wrong. For a security problem, use the Security tab instead.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. If this is a **security problem** (a wrong "hardened" verdict, the research CA or proxy exposed, a device left in a bad state), do not file it here: use **Security → Report a vulnerability**, as described in SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: pinscan version
+      description: Output of `pinscan -version`, or the commit if built from source.
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS, and for device problems the Android version, Magisk version, Zygisk on or off, and the CA-trust mode (`system` or `scoped`).
+      placeholder: |
+        host: macOS 14.6
+        device: Pixel 7, Android 14, Magisk 27.0, Zygisk on, -mode system
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and output
+      description: The exact command line and what it printed. `-log-format json` is easiest to read. Redact hostnames you cannot share.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `pinscan doctor <package>`
+      render: shell
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: checkboxes
+    id: authorized
+    attributes:
+      label: Authorization
+      options:
+        - label: The app and device in this report are mine or I am authorized to test them.
+          required: true

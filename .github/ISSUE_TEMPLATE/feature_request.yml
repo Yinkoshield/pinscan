@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a change before writing it, so it can be merged when it arrives.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The situation you were in, not the solution yet. A scan that gave a result you could not use, a client type you could not scan, a report your pipeline could not read.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What pinscan would do differently. If it touches how verdicts are derived, say how it keeps the "never secure from silence" rule.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - classifier / methodology
+        - Android driver or CA trust (Magisk, Zygisk)
+        - manual driver / non-Android clients
+        - reports, baselines, policy, CI integration
+        - documentation
+        - other
+    validations:
+      required: true
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this, following CONTRIBUTING.md.

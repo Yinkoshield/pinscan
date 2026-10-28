@@ -1,0 +1,220 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img alt="pinscan — TLS certificate-pinning posture scanner" src="docs/assets/logo-light.svg" width="420">
+  </picture>
+</p>
+
+<p align="center">
+  <b>Measure which endpoints of a mobile app actually pin their TLS certificates, how well, and how sure you can be.</b><br>
+  No Frida, no hooks, no repackaging. Never "secure" from silence.
+</p>
+
+<p align="center">
+  <a href="https://github.com/yinkoshield/pinscan/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/yinkoshield/pinscan/ci.yml?branch=main&style=flat-square&label=ci"></a>
+  <a href="https://goreportcard.com/report/github.com/yinkoshield/pinscan"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/yinkoshield/pinscan?style=flat-square"></a>
+  <a href="https://pkg.go.dev/github.com/yinkoshield/pinscan"><img alt="Go Reference" src="https://pkg.go.dev/badge/github.com/yinkoshield/pinscan.svg"></a>
+  <a href="go.mod"><img alt="Go 1.21+" src="https://img.shields.io/badge/go-1.21%2B-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square"></a>
+  <a href="SECURITY.md"><img alt="Authorized use only" src="https://img.shields.io/badge/use-authorized%20testing%20only-orange?style=flat-square"></a>
+</p>
+
+<p align="center">
+  <a href="#installation">Installation</a> •
+  <a href="#quickstart">Quickstart</a> •
+  <a href="#how-it-works">How it works</a> •
+  <a href="#built-for-ci">CI</a> •
+  <a href="#what-pinscan-does-not-do">Limits</a> •
+  <a href="#documentation">Documentation</a> •
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+<p align="center">
+  <img alt="pinscan scan output: two hardened hosts, three interceptable, one inconclusive" src="docs/assets/scan.svg" width="900">
+</p>
+
+Every mobile banking review says "the app implements certificate pinning". pinscan
+replaces that sentence with a measurement. It makes a test device trust a research
+CA, presents the app with three forged certificates of increasing fidelity, and
+records what the app accepts, per host. The login API above pins its key. The
+configuration, push and analytics hosts the same app talks to on startup do not,
+and an attacker holding any certificate the device trusts reads and modifies all
+three.
+
+- **Per-host verdicts on a strength scale**, from `open` to genuine public-key
+  pinning (`spki`), with the evidence behind each one carried into the report.
+- **Separates key pinning from name checking.** A wave that clones the real
+  issuer's name under our CA passes name-based "pinning" and fails real pinning.
+  A plain MITM proxy cannot tell them apart.
+- **Never reports "hardened" because it saw nothing.** A timeout, a reset or a
+  silent connection is `inconclusive`, counted and shown, never a pass.
+- **Confidence is a separate axis.** A one-shot `spki` and a well-evidenced
+  `spki` are not the same thing, and CI can demand the latter.
+- **Built for pipelines.** Exit codes that tell a broken scan from a policy
+  breach, byte-stable JSON baselines, a regression gate, a policy file with
+  mandatory reasons, SARIF and JUnit output.
+- **Nothing to trust blindly.** Open Magisk module in plain shell, Zygisk module
+  source included, pure classifier with its rules in a test table, and a
+  `selftest` that proves the methodology without a device.
+
+> [!IMPORTANT]
+> **Authorized use only.** Test devices and apps you own or are explicitly
+> authorized to assess. pinscan is a posture-evaluation tool, not an interception
+> tool for third-party traffic. See [SECURITY.md](SECURITY.md).
+
+## Installation
+
+```sh
+# Go 1.21+
+go install github.com/yinkoshield/pinscan/cmd/pinscan@latest
+```
+
+Prebuilt binaries for Linux, macOS and Windows, with `SHA256SUMS` and a
+CycloneDX SBOM, are on the [releases page](https://github.com/yinkoshield/pinscan/releases/latest).
+From a clone, `make build` writes `./bin/pinscan`.
+
+For Android you also need `adb` on the host and a **rooted** device (Magisk) on
+the same LAN. Any other TLS client works with the `manual` driver.
+
+## Quickstart
+
+```sh
+pinscan selftest                   # proves the methodology end to end; no device needed
+pinscan ca-new                     # creates the research CA at ~/.pinscan/ca.pem
+pinscan ca-module -o pinscan-ca    # generates an open Magisk module that trusts it (push + reboot)
+pinscan doctor com.example.app     # checks every prerequisite and prints the fix for each
+pinscan scan com.example.app -report scan.html
+```
+
+> [!TIP]
+> Run `pinscan selftest` first. It mints the certificates, runs the proxy and the
+> classifier against four in-process clients with known postures, and asserts
+> each verdict. If it passes, the methodology works on your machine.
+
+Step by step, including rooting, the two CA-trust modes and finding the package
+name: [Getting started](docs/getting-started.md). No hardware?
+[Try it on an emulator](docs/emulator.md).
+
+## How it works
+
+Three waves, each signed by the research CA the device trusts:
+
+| Wave | Certificate presented | Acceptance reveals |
+|:----:|-----------------------|--------------------|
+| **A** | a generic leaf for the hostname | no pinning at all |
+| **B** | a leaf cloning the real certificate's subject and SANs, with our key | the app checks names, not keys |
+| **C** | that leaf under an intermediate whose name clones the real issuer | the app checks the chain's names, not keys |
+
+No forgery ever uses the real endpoint's key. That is exactly what public-key
+pinning detects, and exactly what name-based checks miss.
+
+| Verdict | Meaning | Defeated by a trusted-CA attacker |
+|---------|---------|:---:|
+| `open` | sent a request over the generic leaf | yes |
+| `metadata` | rejected the generic leaf, accepted the cloned names | yes |
+| `name-validation` | rejected both leaves, accepted the cloned-issuer chain | yes |
+| `key-pinned` | rejected the forged leaves; wave C was inconclusive | no |
+| `spki` | rejected everything, including the cloned issuer | no |
+| `inconclusive` | no usable signal | unknown |
+
+Two rules keep the verdicts honest, and both are in the code, not the docs:
+
+- **Acceptance requires an observed request**, not a completed handshake. An app
+  can finish the handshake and refuse at the application layer, as OkHttp's
+  `CertificatePinner` does. A handshake with no request is `inconclusive`.
+- **Only a certificate-class TLS alert counts as a rejection.** `bad_certificate`,
+  `unknown_ca` and friends. A timeout, a reset or a non-certificate alert is
+  `inconclusive`, never "hardened".
+
+Every verdict carries a confidence (`low`, `medium`, `high`) from how many
+consistent attempts backed it. Full detail: [Methodology](docs/methodology.md).
+
+## Built for CI
+
+Commit a baseline, then fail the pull request that weakens a host:
+
+```sh
+pinscan baseline com.example.app -o baselines/com.example.app.json   # commit this
+pinscan scan com.example.app -baseline baselines/com.example.app.json \
+  -policy .pinscan.yaml -fail-on-regression -fail-on-interceptable \
+  -report findings.sarif -log-format json
+```
+
+| Exit | Meaning | Pipeline action |
+|:----:|---------|-----------------|
+| `0` | no policy violation | pass |
+| `2` | the device, CA or proxy could not complete the scan | retry or alert, do not block |
+| `3` | an interceptable host | block |
+| `4` | regression against the baseline | block |
+| `5` | incomplete coverage or confidence below `-min-confidence` | investigate |
+
+Baselines are canonical JSON: no timestamps, sorted keys, byte-stable, reviewable
+as a diff. Regression is defined on the lattice
+`open < metadata < name-validation < key-pinned < spki`; a host that falls to
+`inconclusive` is flagged for review, never silently passed. Reports come as
+JSON (versioned schema), Markdown, self-contained HTML, SARIF for the GitHub
+Security tab, and JUnit. Details: [CI integration](docs/ci.md),
+[Output formats](docs/output.md).
+
+## What pinscan does not do
+
+- **It does not identify the mechanism.** `spki` means the app resists a
+  trusted-CA attacker under these parameters. Whether that is an SPKI pin set, a
+  private trust store or Certificate Transparency enforcement is a
+  reverse-engineering follow-up.
+- **Post-handshake pinning reads `inconclusive`, not `spki`.** OkHttp-style
+  pinners complete the handshake and send nothing. pinscan cannot distinguish
+  that from an app that made no request, and says so. Network Security Config
+  pin sets reject during the handshake and read `spki`.
+- **It needs a rooted device**, or a client whose trust store you control. Apps
+  with active runtime protection that refuse to run rooted need a managed
+  runtime, offered by YinkoShield as an engagement and not part of this repo.
+- **It is not a traffic interceptor.** `-capture` is for the startup,
+  unauthenticated surface only; credential headers are redacted and bodies
+  capped regardless.
+
+## Documentation
+
+| Guide | Answers |
+|-------|---------|
+| [Getting started](docs/getting-started.md) | install to first scan, step by step |
+| [Methodology](docs/methodology.md) | the three waves, the verdicts, confidence, and why silence is never "secure" |
+| [Scanning Android](docs/android.md) | rooting, system vs scoped CA trust, proxy vs transparent routing, what is changed on the device and reverted |
+| [Trying it on an emulator](docs/emulator.md) | a no-hardware walkthrough |
+| [Scanning anything else](docs/non-android.md) | the `manual` driver for desktop, server-side and IoT TLS clients |
+| [Command reference](docs/commands.md) | every subcommand and flag, and each `doctor` check |
+| [Output formats](docs/output.md) | the JSON contract, captured exchanges, HAR dumps, SARIF and JUnit mapping |
+| [CI integration](docs/ci.md) | exit codes, baselines, the policy file, a GitHub Actions example |
+| [Troubleshooting](docs/troubleshooting.md) | the failures people actually hit, with fixes |
+| [Architecture](docs/architecture.md) | package layout and data flow, for contributors |
+
+Package documentation is standard godoc: `go doc ./internal/<pkg>`.
+
+## Build and test
+
+```sh
+make tools    # install the pinned golangci-lint
+make          # fmt + strict lint + race tests + build → ./bin/pinscan
+make repro    # prove the build is reproducible (build twice, byte-compare)
+make dist     # cross-build release binaries + SHA256SUMS
+```
+
+The scoped-mode Zygisk module ships as source in
+[`android/ykzpinscan/`](android/ykzpinscan/) with a prebuilt arm64 `.so`; rebuild
+it with the Android NDK via `build.sh`. Releases are cut with
+[goreleaser](.goreleaser.yaml). The engineering bar (test-first, strict lint,
+pure classifier, coverage honesty) is in [ENGINEERING.md](ENGINEERING.md).
+
+## Contributing and security
+
+Pull requests are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) first. Report
+vulnerabilities privately as described in [SECURITY.md](SECURITY.md), never in a
+public issue. Release notes are in [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+Apache License 2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). The scanner,
+methodology, self-test and trust modules are the open part. "YinkoShield" and
+"Yinkozi" are names of Yinkozi Group and the license grants no right to use them.
+
+<p align="center"><sub>Built by the <b>YinkoShield Threat Lab</b>, Yinkozi Group.</sub></p>

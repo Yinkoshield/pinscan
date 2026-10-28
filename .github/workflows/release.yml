@@ -1,0 +1,38 @@
+name: release
+
+# Cut a release when a version tag is pushed. goreleaser cross-builds the
+# binaries (see .goreleaser.yaml), writes SHA256SUMS and a CycloneDX SBOM per
+# archive, and opens a DRAFT GitHub release; a maintainer reviews and publishes.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # goreleaser needs the tag history for the changelog
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - name: Gate (the same checks as ci.yml, on the exact release commit)
+        run: |
+          go mod verify
+          go test -race ./...
+          go run ./cmd/pinscan selftest
+          make repro
+      - name: Install syft (CycloneDX SBOM generation)
+        uses: anchore/sbom-action/download-syft@v0
+      - name: goreleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
