@@ -18,10 +18,10 @@ differ only in how closely they imitate the real endpoint:
 | **C** `cloned-issuer` | that leaf under an intermediate whose DN **clones the real issuer** | research CA | validates the issuer *name/chain*, **not the key** |
 
 No forged certificate ever uses the real endpoint's private key — pinscan does
-not have it. That is exactly what genuine public-key pinning detects.
+not have it. That is exactly what a key-level check detects.
 
-Wave A and B always run. Wave C runs only when some host genuinely rejected both
-A and B (i.e. it looks key-pinned and C can refine the finding).
+Wave A and B always run. Wave C runs only when some host rejected both A and B
+with a certificate alert (i.e. it looks key-pinned and C can refine the finding).
 
 ## The verdicts
 
@@ -30,9 +30,16 @@ A and B (i.e. it looks key-pinned and C can refine the finding).
 | `open` | sent a request over the generic leaf — no pinning | **yes** |
 | `metadata` | rejected generic, accepted the cloned-metadata leaf | **yes** |
 | `name-validation` | rejected the leaves, accepted the cloned-issuer chain | **yes** |
-| `key-pinned` | genuinely rejected the forged leaves; wave C inconclusive | no |
-| `spki` | genuinely rejected everything, incl. the cloned issuer | no |
-| `inconclusive` | no usable signal (see below) | no |
+| `key-pinned` | rejected the forged leaves with a certificate alert; wave C inconclusive | no |
+| `spki` | rejected everything, incl. the cloned issuer, with a certificate alert | no |
+| `inconclusive` | no usable signal, or trust unverified (see below) | no |
+
+Verdict names describe **behaviour under these three forgeries**, not the
+mechanism that produced it. `spki` is the strongest posture pinscan can observe:
+"rejected every tested chain, including one whose issuer name matches". It is
+consistent with an SPKI pin set, a private trust store or Certificate
+Transparency enforcement, and pinscan does not say which (see
+[Scope](#scope-stated-honestly)).
 
 "Interceptable" means: an attacker holding **any** certificate the device trusts
 (a mis-issued cert, a compromised or coerced CA, an enterprise MITM root) could
@@ -70,6 +77,33 @@ A host is `spki` / `key-pinned` only when the client refused with a
 evidence (outcome + reason) is carried into the [report](output.md), so a
 verdict is auditable rather than a bare label.
 
+### A rejection counts only if the client trusted the research CA
+
+A certificate alert is pinning evidence **only** when the client would have
+accepted a certificate under the research CA had it not been pinning. A client
+that was never made to trust the CA rejects every forged chain with
+`unknown_ca` or `bad_certificate` too — on the wire, a broken test setup and a
+pinned host look identical. So pinscan verifies trust before it believes a
+rejection:
+
+- **Android, system mode.** Before the waves, `Preflight` compares the SHA-256
+  of the trust-store file with the research CA's, from inside every zygote mount
+  namespace (the namespace apps inherit). An absent or different CA stops the
+  scan with exit `2` and a fix, rather than running waves that would read every
+  host as hardened.
+- **Android, scoped mode.** The `ykzpinscan` module binds the CA at app fork,
+  so the check runs after each launch, from inside the app's own process
+  namespace. Absent means the scan stops; no process to inspect means trust
+  stays unverified for that wave.
+- **Manual driver.** pinscan cannot inspect the client; trust is recorded as
+  `operator-asserted` and hardened verdicts carry that caveat.
+
+The outcome is in every report as `ca_trust`: `verified`, `unverified` or
+`operator-asserted`. When it is `unverified`, `spki` and `key-pinned` are
+**withheld as `inconclusive`** with their per-wave evidence kept, and the text
+output says how many were withheld. `pinscan selftest` includes a client that
+does not trust the CA and asserts it reads `inconclusive`, not `spki`.
+
 ### Inconclusive is surfaced, not hidden
 
 The scan tally always reports the inconclusive count ("2 interceptable, 1
@@ -104,9 +138,11 @@ be bypassed by any means."
 
 ## Proving it
 
-`pinscan selftest` runs the real `certmint → proxy → observer → classify` path
-against in-process clients that emulate each posture (no-pin, metadata,
-name-validation, SPKI) and asserts the resulting verdict. It demonstrates the
-separation end-to-end without a device, and catches a silent regression (e.g. a
+`pinscan selftest` runs the real `certmint → proxy → observer → classify` path,
+then the trust rule, against in-process clients that emulate each posture
+(no-pin, metadata, name-validation, key-level check, and a client that does not
+trust the research CA) and asserts the resulting verdict. It demonstrates the
+separation end-to-end without a device, shows that an untrusted test CA reads
+`inconclusive` rather than `spki`, and catches a silent regression (e.g. a
 cert-minting change that stops cloning the issuer DN) that a unit test of the
 pure classifier could not see.

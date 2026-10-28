@@ -79,8 +79,8 @@ func sarifRules() []sarifRule {
 		{"pinscan/open", "No TLS pinning", "The host sent a request over a forged certificate: no pinning. A trusted-CA attacker can intercept it.", sarifError},
 		{"pinscan/metadata", "Metadata validation only", "The host validates certificate subject/SAN names, not the key. Defeatable by a cloned-name certificate under a trusted CA.", sarifError},
 		{"pinscan/name-validation", "Issuer-name validation", "The host validates the issuer name/chain, not the key. Defeatable by a cloned-issuer chain under a trusted CA.", sarifError},
-		{"pinscan/key-pinned", "Key-pinning candidate", "The host genuinely rejected the forged leaves; the cloned-issuer wave did not conclusively confirm SPKI pinning.", sarifNote},
-		{"pinscan/spki", "Public-key (SPKI) pinning", "The host rejected the forged leaves and the cloned issuer alike: genuine key pinning, not defeated by a trusted-CA attacker.", sarifNote},
+		{"pinscan/key-pinned", "Key-level check candidate", "The host rejected the forged leaves; the cloned-issuer wave was inconclusive, so a key-level check is not yet separated from issuer-name validation.", sarifNote},
+		{"pinscan/spki", "Rejects every forged chain", "The host rejected every forged chain, including the cloned-issuer chain: consistent with public-key pinning or a private trust store. The mechanism is not identified; a trusted-CA attacker does not intercept it under these parameters.", sarifNote},
 		{"pinscan/inconclusive", "Inconclusive", "No usable signal: the scanned surface produced no classifiable TLS request, so the posture is unverified.", sarifWarning},
 	}
 	out := make([]sarifRule, 0, len(rules))

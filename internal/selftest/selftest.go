@@ -1,13 +1,15 @@
 // Package selftest proves the pinscan methodology end-to-end without a device.
 //
 // It stands up, for each known client posture (no pinning, metadata validation,
-// issuer-name validation, genuine SPKI pinning), a loopback client that pins on
-// exactly that property, and runs the real waves through the real
-// certmint → proxy → observer → classify path. It then asserts the verdict
-// equals the known posture. A green selftest demonstrates — rather than merely
-// asserts — that the metadata/name/SPKI distinctions hold, and catches a silent
-// certmint regression (e.g. ClonedIssuer no longer cloning the issuer DN) that a
-// unit test of the pure classifier cannot see.
+// issuer-name validation, public-key pinning, and a client that does not trust
+// the research CA at all), a loopback client that pins on exactly that
+// property, and runs the real waves through the real
+// certmint → proxy → observer → classify path, then the trust rule. It asserts
+// the verdict equals the known posture. A green selftest demonstrates — rather
+// than merely asserts — that the metadata/name/key distinctions hold, that an
+// untrusted test CA is not mistaken for pinning, and catches a silent certmint
+// regression (e.g. ClonedIssuer no longer cloning the issuer DN) that a unit
+// test of the pure classifier cannot see.
 //
 // It is not a model of every real TLS stack: each posture is a deliberately
 // simple pin on one property, chosen to exercise one branch of the classifier.
@@ -50,8 +52,11 @@ type Case struct {
 // posture is a client that pins on one property, with the verdict it should
 // produce.
 type posture struct {
-	name   string
-	want   classify.Verdict
+	name string
+	want classify.Verdict
+	// trust is what a real scan would have established about the research CA
+	// for this client; the trust rule is applied with it, as in a scan.
+	trust  scan.TrustStatus
 	config func(ca *certmint.CA, realLeaf *x509.Certificate) *tls.Config
 }
 
@@ -74,7 +79,7 @@ func Run(ctx context.Context) ([]Case, error) {
 		if err != nil {
 			return nil, fmt.Errorf("selftest: posture %q: %w", p.name, err)
 		}
-		got := verdictOf(results)
+		got := verdictOf(scan.ApplyTrust(results, p.trust))
 		cases = append(cases, Case{
 			Posture: p.name,
 			Want:    p.want.String(),
@@ -97,32 +102,40 @@ func verdictOf(results []scan.HostResult) classify.Verdict {
 
 func postures() []posture {
 	return []posture{
-		{"no-pinning", classify.Open, func(ca *certmint.CA, _ *x509.Certificate) *tls.Config {
+		{"no-pinning", classify.Open, scan.TrustVerified, func(ca *certmint.CA, _ *x509.Certificate) *tls.Config {
 			pool := x509.NewCertPool()
 			pool.AddCert(ca.Cert())
 			return &tls.Config{RootCAs: pool, ServerName: host, MinVersion: tls.VersionTLS12}
 		}},
-		{"metadata-validation", classify.Metadata, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
+		{"metadata-validation", classify.Metadata, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
 			return pinningConfig(func(leaf *x509.Certificate) bool {
 				// Accepts any certificate whose subject names match the real
 				// endpoint, regardless of key or issuer.
 				return leaf.Subject.String() == realLeaf.Subject.String()
 			})
 		}},
-		{"name-validation", classify.NameValidation, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
+		{"name-validation", classify.NameValidation, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
 			return pinningConfig(func(leaf *x509.Certificate) bool {
 				// Accepts any leaf whose issuer name matches the real issuer,
 				// regardless of key — defeated by a cloned-issuer chain.
 				return leaf.Issuer.String() == realLeaf.Issuer.String()
 			})
 		}},
-		{"spki-pinning", classify.SPKI, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
+		{"spki-pinning", classify.SPKI, scan.TrustVerified, func(_ *certmint.CA, realLeaf *x509.Certificate) *tls.Config {
 			realSPKI := spki(realLeaf)
 			return pinningConfig(func(leaf *x509.Certificate) bool {
 				// Accepts only the real endpoint's public key — never matched by
 				// a forged chain, which always uses our keys.
 				return bytes.Equal(spki(leaf), realSPKI)
 			})
+		}},
+		{"untrusted-ca", classify.Inconclusive, scan.TrustUnverified, func(_ *certmint.CA, _ *x509.Certificate) *tls.Config {
+			// A plain client that was never made to trust the research CA: it
+			// rejects every forged chain with a certificate alert, which on the
+			// wire is indistinguishable from key pinning. Trust is unverified for
+			// this posture, so the hardened verdict must be withheld — a broken
+			// setup must not read as protection.
+			return &tls.Config{RootCAs: x509.NewCertPool(), ServerName: host, MinVersion: tls.VersionTLS12}
 		}},
 	}
 }

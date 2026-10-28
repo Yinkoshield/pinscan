@@ -66,14 +66,18 @@ func (p *bindProbeTarget) Route(context.Context, string) (func(), error) {
 func (p *bindProbeTarget) Exercise(ctx context.Context) error {
 	for _, host := range p.hosts {
 		addr := net.JoinHostPort(host, strconv.Itoa(p.port))
-		// A generous timeout: on macOS hosts with virtual interfaces (Parallels,
-		// Docker) a connection to the host's own LAN address can take close to a
-		// second, and these tests run in parallel under the race detector. The
-		// timeout only bounds the failing case; a reachable listener answers fast.
-		conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", addr)
-		p.reached[host] = err == nil
-		if conn != nil {
-			_ = conn.Close()
+		// Two attempts with a generous timeout: on macOS hosts with virtual
+		// interfaces (Parallels, Docker) a connection to the host's own LAN
+		// address occasionally stalls, while a fresh attempt right after goes
+		// through, and these tests run in parallel under the race detector. A
+		// reachable listener answers the first attempt in milliseconds; an
+		// unreachable one fails both.
+		for attempt := 0; attempt < 2 && !p.reached[host]; attempt++ {
+			conn, err := (&net.Dialer{Timeout: 6 * time.Second}).DialContext(ctx, "tcp", addr)
+			p.reached[host] = err == nil
+			if conn != nil {
+				_ = conn.Close()
+			}
 		}
 	}
 	return nil

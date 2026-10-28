@@ -7,7 +7,26 @@ All notable changes to pinscan are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Research-CA trust is verified before a rejection counts as pinning.** On
+  Android, `scan` now compares the trust-store file by SHA-256 from inside the
+  zygote mount namespaces (system mode, before the waves) or the app's own
+  process namespace (scoped mode, after each launch). An absent CA stops the
+  scan with exit `2` and a fix. When trust cannot be checked, `spki` and
+  `key-pinned` are withheld as `inconclusive` with their per-wave evidence
+  kept, and the text output says how many were withheld. The manual driver
+  records trust as `operator-asserted`. Reports carry `scan.ca_trust`
+  (schema 1.1.0, additive); Markdown and HTML show it in the header.
+- `pinscan selftest` has a fifth posture, a client that does not trust the
+  research CA, and asserts it reads `inconclusive`, not `spki`.
+
 ### Changed
+
+- Verdict explanations, SARIF rule texts and the docs describe observed
+  behaviour rather than a mechanism: `spki` is "rejected every forged chain,
+  including the cloned-issuer chain", consistent with public-key pinning or a
+  private trust store, mechanism not identified.
 
 - Toolchain: Go 1.26 (the `go` directive is now `1.26.0`; older Go installs
   download it automatically) and golangci-lint v2.15.0 with the configuration

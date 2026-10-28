@@ -37,6 +37,9 @@ type HostResult struct {
 	// Waves holds the observation for each wave that saw the host, keyed by the
 	// wave name ("generic", "cloned", "issuer").
 	Waves map[string]WaveObservation
+	// Caveat, when set, qualifies the verdict: why a hardened verdict was
+	// withheld, or what it rests on. See [ApplyTrust].
+	Caveat string
 }
 
 // Interceptable reports whether the verdict is defeatable by a trusted-CA

@@ -107,6 +107,13 @@ func (c *Controller) log() *slog.Logger {
 // same name is". Without this the check reports that it could not verify.
 func (c *Controller) SetCA(name, sha256Hex string) { c.caFile, c.caSHA = name, sha256Hex }
 
+// CAKnown reports whether [Controller.SetCA] has identified the research CA,
+// which is the precondition for any trust verification.
+func (c *Controller) CAKnown() bool { return c.caFile != "" && c.caSHA != "" }
+
+// Mode returns the CA-trust mode the controller drives.
+func (c *Controller) Mode() Mode { return c.mode }
+
 // New returns a Controller that drives runner in the given mode.
 func New(runner Runner, mode Mode) *Controller {
 	return &Controller{runner: runner, mode: mode}
@@ -368,7 +375,7 @@ func (c *Controller) checkCATrust(ctx context.Context) Check {
 // name occupies the same name and would otherwise read as trusted.
 func (c *Controller) checkSystemCATrust(ctx context.Context) Check {
 	const name = "system CA trust (system mode)"
-	if c.caFile == "" || c.caSHA == "" {
+	if !c.CAKnown() {
 		return Check{
 			Name:     name,
 			OK:       false,
@@ -377,40 +384,17 @@ func (c *Controller) checkSystemCATrust(ctx context.Context) Check {
 			Required: false,
 		}
 	}
-	apex := apexTrustStore + "/" + c.caFile
-	legacy := legacyTrustStore + "/" + c.caFile
-	// Count the zygote namespaces holding a byte-identical certificate. Single
-	// quotes would break the su -c wrapping, so this uses double quotes only.
-	cmd := fmt.Sprintf(`zs=$(pidof zygote64 zygote 2>/dev/null); n=0; t=0; `+
-		`for p in $zs; do n=$((n+1)); `+
-		`h=$(nsenter --mount=/proc/$p/ns/mnt -- sh -c "sha256sum %s 2>/dev/null || sha256sum %s 2>/dev/null" | cut -d" " -f1); `+
-		`if [ "$h" = "%s" ]; then t=$((t+1)); fi; `+
-		`done; `+
-		`if [ "$n" = "0" ]; then h=$(sha256sum %s 2>/dev/null || sha256sum %s 2>/dev/null | cut -d" " -f1); `+
-		`if [ "$h" = "%s" ]; then echo 1/1; else echo 0/1; fi; `+
-		`else echo $t/$n; fi`,
-		apex, legacy, c.caSHA, apex, legacy, c.caSHA)
-	out, err := c.runner.Root(ctx, cmd)
-	got := strings.TrimSpace(out)
+	trusted, total, err := c.trustCounts(ctx, zygotePIDs, true)
 	if err != nil {
 		return Check{
 			Name:     name,
 			OK:       false,
-			Detail:   "trust check failed: " + describe(got, err),
-			Hint:     "ensure root is available so the trust store can be inspected",
+			Detail:   "trust check failed: " + err.Error(),
+			Hint:     "ensure root is available so the trust store can be inspected; inspect " + apexTrustStore + "/" + c.caFile,
 			Required: false,
 		}
 	}
-	trusted, total, ok := parseRatio(got)
 	switch {
-	case !ok:
-		return Check{
-			Name:     name,
-			OK:       false,
-			Detail:   "unexpected trust-check output: " + got,
-			Hint:     "inspect " + apex + " on the device",
-			Required: false,
-		}
 	case trusted > 0 && trusted == total:
 		return Check{
 			Name:     name,
@@ -429,6 +413,100 @@ func (c *Controller) checkSystemCATrust(ctx context.Context) Check {
 			Required: false,
 		}
 	}
+}
+
+// zygotePIDs lists the zygote processes, whose mount namespaces every app
+// inherits at fork.
+const zygotePIDs = "pidof zygote64 zygote"
+
+// trustCounts runs the trust probe: for every PID that pidsCmd prints, it
+// enters that process's mount namespace and compares the trust-store file's
+// SHA-256 with the research CA's. It returns how many of those namespaces hold
+// the CA and how many were inspected. With fallbackGlobal, an empty PID list
+// probes the global namespace instead and reports 1/1 or 0/1.
+//
+// The comparison is by content, not filename: trust-store names derive from
+// the subject alone, so a different CA with the same common name would
+// otherwise read as trusted. Single quotes would break the su -c wrapping, so
+// the script uses double quotes only.
+func (c *Controller) trustCounts(ctx context.Context, pidsCmd string, fallbackGlobal bool) (trusted, total int, err error) {
+	apex := apexTrustStore + "/" + c.caFile
+	legacy := legacyTrustStore + "/" + c.caFile
+	cmd := fmt.Sprintf(`zs=$(%s 2>/dev/null); n=0; t=0; `+
+		`for p in $zs; do n=$((n+1)); `+
+		`h=$(nsenter --mount=/proc/$p/ns/mnt -- sh -c "sha256sum %s 2>/dev/null || sha256sum %s 2>/dev/null" | cut -d" " -f1); `+
+		`if [ "$h" = "%s" ]; then t=$((t+1)); fi; `+
+		`done; `,
+		pidsCmd, apex, legacy, c.caSHA)
+	if fallbackGlobal {
+		cmd += fmt.Sprintf(`if [ "$n" = "0" ]; then h=$(sha256sum %s 2>/dev/null || sha256sum %s 2>/dev/null | cut -d" " -f1); `+
+			`if [ "$h" = "%s" ]; then echo 1/1; else echo 0/1; fi; `+
+			`else echo $t/$n; fi`,
+			apex, legacy, c.caSHA)
+	} else {
+		cmd += `echo $t/$n`
+	}
+	out, err := c.runner.Root(ctx, cmd)
+	got := strings.TrimSpace(out)
+	if err != nil {
+		return 0, 0, fmt.Errorf("%s", describe(got, err))
+	}
+	trusted, total, ok := parseRatio(got)
+	if !ok {
+		return 0, 0, fmt.Errorf("unexpected trust-check output: %q", got)
+	}
+	return trusted, total, nil
+}
+
+// TrustResult is the outcome of [Controller.VerifyTrust].
+type TrustResult struct {
+	// Checked is true when the probe ran and found at least one process whose
+	// trust store it could inspect. When false, nothing is known either way.
+	Checked bool
+	// Verified is true when the research CA is present, byte-identical, in
+	// every inspected namespace. Meaningful only when Checked.
+	Verified bool
+	// Trusted and Total count the namespaces that hold the CA and the
+	// namespaces inspected.
+	Trusted, Total int
+	// Detail says what was observed, for logs and error messages.
+	Detail string
+}
+
+// VerifyTrust checks, from the mount namespace that decides what the app
+// trusts, that the research CA is in the trust store. In System mode that is
+// every zygote namespace (apps are forked from zygote). In Scoped mode the
+// ykzpinscan module binds the CA at app fork, so the probe inspects pkg's own
+// running processes and requires the app to be running.
+//
+// A scan must not treat a certificate rejection as pinning unless this
+// verification passed: a client that does not trust the CA rejects every
+// forged chain exactly like a pinned one.
+func (c *Controller) VerifyTrust(ctx context.Context, pkg string) TrustResult {
+	if !c.CAKnown() {
+		return TrustResult{Detail: "research CA fingerprint not set; trust cannot be verified"}
+	}
+	pidsCmd, fallback := zygotePIDs, true
+	if c.mode == Scoped {
+		if err := validatePackage(pkg); err != nil {
+			return TrustResult{Detail: err.Error()}
+		}
+		pidsCmd, fallback = "pidof "+pkg, false
+	}
+	trusted, total, err := c.trustCounts(ctx, pidsCmd, fallback)
+	if err != nil {
+		return TrustResult{Detail: "trust check failed: " + err.Error()}
+	}
+	if total == 0 {
+		return TrustResult{Detail: fmt.Sprintf("no running process of %s to inspect", pkg)}
+	}
+	res := TrustResult{Checked: true, Trusted: trusted, Total: total, Verified: trusted == total}
+	if res.Verified {
+		res.Detail = fmt.Sprintf("%s trusted in %d/%d mount namespace(s)", c.caFile, trusted, total)
+	} else {
+		res.Detail = fmt.Sprintf("%s present in only %d/%d mount namespace(s)", c.caFile, trusted, total)
+	}
+	return res
 }
 
 // parseRatio parses "t/n" as produced by the system-trust probe.

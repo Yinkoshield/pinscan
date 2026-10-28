@@ -39,7 +39,7 @@ func HTML(w io.Writer, rep Report) error {
 var markdownTemplate = texttemplate.Must(texttemplate.New("md").Parse(`# pinscan report
 
 - **Package:** {{.Scan.Package}}
-- **Mode:** {{.Scan.Mode}}{{if .Scan.Transparent}} (transparent){{end}} · window {{.Scan.WindowSeconds}}s
+- **Mode:** {{.Scan.Mode}}{{if .Scan.Transparent}} (transparent){{end}} · window {{.Scan.WindowSeconds}}s{{with .Scan.CATrust}} · research CA trust **{{.}}**{{end}}
 - **Schema:** {{.SchemaVersion}}{{with .Run}} · generated {{.StartedAt}}{{end}}
 - **Summary:** {{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.Inconclusive}} inconclusive
 
@@ -101,7 +101,7 @@ pre { background:var(--code); padding:.7rem; border-radius:.4rem; overflow:auto;
 </head>
 <body>
 <h1>pinscan report</h1>
-<div class="meta">{{.Scan.Package}} · {{.Scan.Mode}}{{if .Scan.Transparent}} (transparent){{end}} · window {{.Scan.WindowSeconds}}s · schema {{.SchemaVersion}}{{with .Run}} · {{.StartedAt}}{{end}}<br>
+<div class="meta">{{.Scan.Package}} · {{.Scan.Mode}}{{if .Scan.Transparent}} (transparent){{end}} · window {{.Scan.WindowSeconds}}s{{with .Scan.CATrust}} · research CA trust {{.}}{{end}} · schema {{.SchemaVersion}}{{with .Run}} · {{.StartedAt}}{{end}}<br>
 {{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.Inconclusive}} inconclusive (not verified)</div>
 
 <table>

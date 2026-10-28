@@ -13,7 +13,9 @@
 //
 // Which forged certificate an app accepts reveals how much validation it does.
 // Accepting the generic leaf means no pinning; rejecting every forged leaf and
-// the cloned issuer means genuine public-key (SPKI) pinning.
+// the cloned issuer is the strongest observable posture, consistent with
+// public-key pinning. Verdicts name observed behavior under these forgeries,
+// not the mechanism that produced it, which the classifier cannot see.
 //
 // Classification is a pure function of the three observed outcomes so that the
 // methodology is fully specified and exhaustively testable.
@@ -87,8 +89,10 @@ const (
 	// candidate) but Wave C did not conclusively separate key pinning from
 	// name validation.
 	KeyPinned
-	// SPKI means genuine public-key pinning: the host rejected the forged
-	// leaves and the cloned-issuer chain alike.
+	// SPKI means the host rejected the forged leaves and the cloned-issuer
+	// chain alike: a key-level check, consistent with public-key pinning or a
+	// private trust store. The name is historical; it does not assert that an
+	// SPKI pin set is the mechanism.
 	SPKI
 )
 
@@ -154,9 +158,9 @@ func (v Verdict) Explain() string {
 	case NameValidation:
 		return "Issuer-name/chain validation, not key pinning: the app accepts any leaf under an issuer whose name matches — a trusted-CA cert with a cloned issuer name defeats it."
 	case KeyPinned:
-		return "Key-pinning candidate: the app rejected the forged leaves; the cloned-issuer wave did not conclusively separate key pinning from name validation."
+		return "Rejected the forged leaves, but the cloned-issuer wave was inconclusive, so a key-level check is not yet separated from issuer-name validation."
 	case SPKI:
-		return "Genuine public-key (SPKI) pinning: the app rejected the forged leaves and the cloned issuer alike, so it pins the key, not metadata — a trusted-CA attacker does not intercept it."
+		return "Rejected every forged chain, including the cloned-issuer chain: consistent with public-key pinning or a private trust store (the mechanism is not identified); not defeated by a trusted-CA attacker under these parameters."
 	default:
 		return "Unknown verdict."
 	}
@@ -191,10 +195,10 @@ type Result struct {
 //  1. Any accepted forged certificate makes the host interceptable; the weakest
 //     certificate accepted names the verdict (generic → Open, cloned-metadata →
 //     Metadata, cloned-issuer → NameValidation).
-//  2. Otherwise, a genuine rejection of the cloned-issuer chain is the strongest
-//     evidence of genuine key pinning (SPKI).
-//  3. Otherwise, a genuine rejection of any forged leaf marks an SPKI candidate
-//     (KeyPinned).
+//  2. Otherwise, a certificate-alert rejection of the cloned-issuer chain is the
+//     strongest observable evidence of a key-level check (SPKI).
+//  3. Otherwise, a certificate-alert rejection of any forged leaf marks a
+//     key-level-check candidate (KeyPinned).
 //  4. Otherwise, there was no usable signal (Inconclusive).
 //
 // Only [Rejected] (a genuine certificate-class rejection) is treated as pinning
