@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Correct pins: every certificate of the host's live chain, so the pin set
+     stays valid across a leaf rotation as long as the issuing chain is the same.
+     This file is the single source of truth for the host and the pins: the
+     okhttp and trustmanager flavors read it too (Pins.java). Regenerate it with
+     build.sh (or pins.sh) when the host's chain changes.
+     Generated 2026-10-28 from the live chain of example.com. -->
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config>
+        <domain includeSubdomains="false">example.com</domain>
+        <pin-set>
+            <pin digest="SHA-256">toyMGpiThuoVaTygu6QeCcnum2PKJknnGOsHalH7BzU=</pin>
+            <pin digest="SHA-256">44viFzTC+h/L+3OHRg4Rs5v4+AcpzHZvI9Tne2RDNGk=</pin>
+            <pin digest="SHA-256">OXyj9ngbqO9cjLeO/+t9Ggl2EP4JTnVWHq4LEwhFM9w=</pin>
+            <pin digest="SHA-256">G/ANXI8TwJTdF+AFBM8IiIUPEv0Gf6H5LA/b9guG4yE=</pin>
+        </pin-set>
+    </domain-config>
+</network-security-config>

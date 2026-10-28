@@ -103,7 +103,10 @@ pinscan scan com.example.app -report scan.html
 > Run `pinscan selftest` first. It mints the certificates, runs the proxy and the
 > classifier against five in-process clients with known postures, including one
 > that does not trust the research CA, and asserts each verdict. If it passes,
-> the methodology works on your machine.
+> the methodology works on your machine. The same proof on a real device, against
+> Network Security Config, OkHttp, a custom TrustManager, WebView and three broken
+> setups, is the [validation matrix](docs/validation.md): a small test app plus
+> `scripts/validate-device.sh`.
 
 Step by step, including rooting, the two CA-trust modes and finding the package
 name: [Getting started](docs/getting-started.md). No hardware?
@@ -184,7 +187,9 @@ Security tab, and JUnit. Details: [CI integration](docs/ci.md),
 - **Post-handshake pinning reads `inconclusive`, not `spki`.** OkHttp-style
   pinners complete the handshake and send nothing. pinscan cannot distinguish
   that from an app that made no request, and says so. Network Security Config
-  pin sets reject during the handshake and read `spki`.
+  pin sets reject during the handshake and read `spki`. Both are rows of the
+  [validation matrix](docs/validation.md), which also lists what a `spki` does
+  not prove (a pin set that matches nothing reads the same).
 - **It needs a rooted device**, or a client whose trust store you control. Apps
   with active runtime protection that refuse to run rooted need a managed
   runtime, offered by YinkoShield as an engagement and not part of this repo.
@@ -204,6 +209,7 @@ Security tab, and JUnit. Details: [CI integration](docs/ci.md),
 | [Command reference](docs/commands.md) | every subcommand and flag, and each `doctor` check |
 | [Output formats](docs/output.md) | the JSON contract, captured exchanges, HAR dumps, SARIF and JUnit mapping |
 | [CI integration](docs/ci.md) | exit codes, baselines, the policy file, a GitHub Actions example |
+| [Validation matrix](docs/validation.md) | the expected verdict per known client posture and per broken setup, and the kit that checks them on a device |
 | [Troubleshooting](docs/troubleshooting.md) | the failures people actually hit, with fixes |
 | [Architecture](docs/architecture.md) | package layout and data flow, for contributors |
 

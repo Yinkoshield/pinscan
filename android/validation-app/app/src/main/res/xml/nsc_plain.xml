@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- No pins: trust the system store (where pinscan puts the research CA) and
+     nothing else. Used by the nopin, okhttp, trustmanager, webview and netproc
+     flavors; the latter three pin in code, not here. -->
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

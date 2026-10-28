@@ -12,3 +12,15 @@ android/ykzpinscan/obj/
 android/ykzpinscan/libs/
 # A user's own research CA dropped into the module (never commit a CA)
 android/ykzpinscan/cacerts/*.0
+
+# Validation kit: Gradle outputs of the device-side test app, and the reports
+# scripts/validate-device.sh writes (they carry host IPs and CA fingerprints).
+android/validation-app/.gradle/
+android/validation-app/build/
+android/validation-app/app/build/
+android/validation-app/local.properties
+android/validation-app/.idea/
+android/validation-app/gradlew
+android/validation-app/gradlew.bat
+android/validation-app/gradle/
+/validation/
