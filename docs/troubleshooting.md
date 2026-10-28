@@ -44,20 +44,27 @@ startup connections.
 
 ## Every host comes back `inconclusive`
 
-`inconclusive` means pinscan saw no classifiable request. Common causes:
+`inconclusive` means pinscan saw no classifiable request, or saw rejections it
+is not allowed to trust. Read the line after the tally first:
 
+- **`research CA trust: UNVERIFIED; N hardened verdict(s) withheld`** — the
+  hosts rejected the forged certificates, but pinscan could not confirm the app
+  trusts the research CA, and an untrusted CA produces exactly the same
+  rejections as pinning. Run `pinscan doctor <package>` (system mode: the CA
+  must be trusted in every zygote namespace; scoped mode: the app must be
+  running with the `ykzpinscan` module active for it). If `scan` stops with
+  "the research CA is not trusted", that is the same cause, caught earlier.
 - **Window too short** — the app didn't finish its startup connections. Raise
   `-window` (e.g. `-window 60s`) and keep the screen on.
 - **App ignores the HTTP proxy** — try `-transparent` (needs `iptables` + root).
-- **CA not actually trusted by the app** — in scoped mode, confirm the module is
-  installed and you rebooted; confirm the target package is written to
-  `/data/adb/ykzpinscan/targets` (pinscan does this, but a stale module can
-  interfere).
+- **Scoped mode, no process to inspect** — the app exited right after launch
+  (root detection, crash). Trust stays unverified and nothing is observed.
 - **Host-not-reachable from the device** — the device must reach `-host-ip` on
   the proxy port over the LAN; check the host firewall.
 
 `inconclusive` is deliberate: pinscan will not report "hardened" when it saw
-nothing (see [methodology](methodology.md#the-honesty-rules--never-secure-from-silence)).
+nothing, nor when the test setup itself could explain the rejections (see
+[methodology](methodology.md#the-honesty-rules--never-secure-from-silence)).
 
 ## A host I expected to be pinned shows `open`
 

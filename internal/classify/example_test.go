@@ -42,5 +42,5 @@ func ExampleClassify_inconclusive() {
 
 func ExampleVerdict_Explain() {
 	fmt.Println(classify.SPKI.Explain())
-	// Output: Genuine public-key (SPKI) pinning: the app rejected the forged leaves and the cloned issuer alike, so it pins the key, not metadata — a trusted-CA attacker does not intercept it.
+	// Output: Rejected every forged chain, including the cloned-issuer chain: consistent with public-key pinning or a private trust store (the mechanism is not identified); not defeated by a trusted-CA attacker under these parameters.
 }

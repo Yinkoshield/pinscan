@@ -43,7 +43,14 @@ prints a fix for anything missing.
 
 The proxy signs its forged certificates with the research CA (`-ca`, default
 `~/.pinscan/ca.pem` — run `pinscan ca-new` to create it). The app has to trust
-that CA, or every handshake fails and every host comes back `inconclusive`.
+that CA, or every handshake fails with a certificate alert — which is exactly
+what a pinned host does. pinscan therefore **verifies trust before it believes
+a rejection**: in system mode it checks the CA by content from inside the
+zygote mount namespaces before the waves; in scoped mode it checks inside the
+app's own process after each launch. A missing CA stops the scan with exit `2`
+and the fix; a check that could not run leaves trust `unverified`, and
+hardened verdicts are then withheld as `inconclusive`. See
+[methodology](methodology.md#a-rejection-counts-only-if-the-client-trusted-the-research-ca).
 
 ### System mode (self-serve)
 

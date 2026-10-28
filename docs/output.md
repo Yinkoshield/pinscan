@@ -27,7 +27,7 @@ its JSON Schema with `pinscan schema`.
 
 ```jsonc
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "tool": { "name": "pinscan", "version": "1.2.3" },
   "scan": {                       // deterministic inputs
     "package": "com.example.app",
@@ -35,6 +35,7 @@ its JSON Schema with `pinscan schema`.
     "transparent": false,
     "window_seconds": 30,
     "ca_sha256": "…",
+    "ca_trust": "verified",       // or "unverified" / "operator-asserted" (1.1.0)
     "waves_run": ["generic", "cloned", "issuer"]
   },
   "summary": {
@@ -47,7 +48,7 @@ its JSON Schema with `pinscan schema`.
       "host": "api.example.com",
       "verdict": "spki",
       "confidence": "high",
-      "mechanism": "Genuine public-key (SPKI) pinning: …",
+      "mechanism": "Rejected every forged chain, including the cloned-issuer chain: …",
       "interceptable": false,
       "waves": [
         { "wave": "generic", "outcome": "rejected", "reason": "tls_alert_bad_certificate" },
@@ -65,7 +66,12 @@ its JSON Schema with `pinscan schema`.
 
 The per-host `waves` carry the **evidence** behind the verdict — which
 certificate was presented, what happened, and why — so the classification is
-auditable (see [methodology](methodology.md)).
+auditable (see [methodology](methodology.md)). `scan.ca_trust` says how trust in
+the research CA was established; when it is `unverified`, `spki` and
+`key-pinned` have been withheld as `inconclusive`, because a client that does
+not trust the CA rejects every forged chain exactly like a pinned one. The
+`mechanism` field is a plain-language account of the observed behaviour, not an
+identification of the pinning implementation.
 
 ### Versioning
 

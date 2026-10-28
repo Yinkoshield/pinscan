@@ -176,9 +176,9 @@ func TestRenderMarkdownHasHostsAndBodies(t *testing.T) {
 	for _, want := range []string{
 		samplePackage, "secure.example.com", "open", "spki",
 		"/unleash/api/frontend", `{"toggles":["pkg.a"]}`,
-		"No pinning",                // Open's mechanism explanation.
-		"public-key (SPKI) pinning", // SPKI's mechanism explanation.
-		"high", "medium",            // Confidence column.
+		"No pinning",                  // Open's mechanism explanation.
+		"Rejected every forged chain", // SPKI's behavioral explanation.
+		"high", "medium",              // Confidence column.
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("markdown missing %q", want)

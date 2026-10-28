@@ -298,9 +298,7 @@ func doctorCommand(args []string, stdout, stderr io.Writer) error {
 	// Give the controller the CA's trust-store filename so the system-mode
 	// check can verify that apps actually trust it, rather than assume so.
 	if ca, err := loadCAFile(*caPath); err == nil {
-		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Cert().Raw})
-		sum := sha256.Sum256(certPEM)
-		ctrl.SetCA(camodule.SubjectHashOld(ca.Cert())+".0", hex.EncodeToString(sum[:]))
+		ctrl.SetCA(caIdentity(ca))
 	}
 	checks := append(hostChecks(*caPath), ctrl.Diagnostics(context.Background(), fs.Arg(0))...)
 	failed := printChecks(stdout, checks)
@@ -515,18 +513,22 @@ func scanCommand(args []string, stdout, stderr io.Writer) error {
 	if err := printResults(stdout, results, opts.explain); err != nil {
 		return err
 	}
+	if err := printTrust(stdout, results, meta.CATrust); err != nil {
+		return err
+	}
 	return finishScan(ctx, cfg, opts, stdout, results, meta)
 }
 
 // buildTarget constructs the scan target for the selected driver. The manual
 // driver prints its operator instructions to instrOut.
-func buildTarget(opts scanOptions, instrOut io.Writer) (scan.Target, error) {
+func buildTarget(opts scanOptions, ca *certmint.CA, instrOut io.Writer) (scan.Target, error) {
 	switch opts.driver {
 	case "manual":
 		return target.NewManual(instrOut, opts.pkg, opts.caPath, opts.window, opts.transparent), nil
 	case "android":
 		ctrl := device.New(device.NewExec(), opts.mode)
 		ctrl.SetLogger(opts.logger)
+		ctrl.SetCA(caIdentity(ca)) // lets the target verify trust from the app's namespace
 		a := target.NewAndroid(ctrl, opts.pkg, opts.transparent)
 		a.SetLogger(opts.logger)
 		return a, nil
@@ -547,7 +549,7 @@ func executeScan(ctx context.Context, opts scanOptions, instrOut io.Writer) ([]s
 	if err != nil {
 		return nil, report.Meta{}, scan.Config{}, coded(exitOperational, err)
 	}
-	tgt, err := buildTarget(opts, instrOut)
+	tgt, err := buildTarget(opts, ca, instrOut)
 	if err != nil {
 		return nil, report.Meta{}, scan.Config{}, coded(exitUsage, err)
 	}
@@ -574,12 +576,17 @@ func executeScan(ctx context.Context, opts scanOptions, instrOut io.Writer) ([]s
 	if err != nil {
 		return nil, report.Meta{}, scan.Config{}, coded(exitOperational, err)
 	}
-	return results, reportMeta(opts, caFingerprint(ca), startedAt), cfg, nil
+	// A rejection is pinning evidence only if the client trusted the research
+	// CA. Where that was not verified, hardened verdicts are withheld.
+	trust := scan.TrustOf(tgt)
+	results = scan.ApplyTrust(results, trust)
+	opts.logger.Info("research CA trust", "status", trust.String())
+	return results, reportMeta(opts, caFingerprint(ca), trust, startedAt), cfg, nil
 }
 
 // reportMeta builds the report metadata for a scan. Duration is left for the
 // caller to stamp just before writing, so it reflects the whole run.
-func reportMeta(opts scanOptions, caSHA string, startedAt time.Time) report.Meta {
+func reportMeta(opts scanOptions, caSHA string, trust scan.TrustStatus, startedAt time.Time) report.Meta {
 	return report.Meta{
 		ToolVersion: version,
 		Package:     opts.pkg,
@@ -587,6 +594,7 @@ func reportMeta(opts scanOptions, caSHA string, startedAt time.Time) report.Meta
 		Transparent: opts.transparent,
 		Window:      opts.window,
 		CASHA256:    caSHA,
+		CATrust:     trust.String(),
 		StartedAt:   startedAt,
 	}
 }
@@ -595,6 +603,15 @@ func reportMeta(opts scanOptions, caSHA string, startedAt time.Time) report.Meta
 func caFingerprint(ca *certmint.CA) string {
 	sum := sha256.Sum256(ca.Cert().Raw)
 	return hex.EncodeToString(sum[:])
+}
+
+// caIdentity returns how an Android trust store names the research CA
+// ("<subject_hash_old>.0") and the SHA-256 of its PEM encoding, which is what
+// the on-device file holds. Both are needed to verify trust by content.
+func caIdentity(ca *certmint.CA) (file, sha string) {
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Cert().Raw})
+	sum := sha256.Sum256(certPEM)
+	return camodule.SubjectHashOld(ca.Cert()) + ".0", hex.EncodeToString(sum[:])
 }
 
 // finishScan runs the optional capture pass, writes the optional report,
@@ -1099,13 +1116,50 @@ func printResults(w io.Writer, results []scan.HostResult, explain bool) error {
 			r.Host, r.Verdict, r.Confidence, note); err != nil {
 			return err
 		}
-		if explain {
-			if _, err := fmt.Fprintf(w, "    %s\n", r.Verdict.Explain()); err != nil {
-				return err
-			}
+		if err := printResultNotes(w, r, explain); err != nil {
+			return err
 		}
 	}
 	return printTally(w, scan.Summarize(results))
+}
+
+// printResultNotes prints the indented lines under a host: the plain-language
+// explanation when -explain is set, and the caveat when the verdict carries one.
+func printResultNotes(w io.Writer, r scan.HostResult, explain bool) error {
+	if explain {
+		if _, err := fmt.Fprintf(w, "    %s\n", r.Verdict.Explain()); err != nil {
+			return err
+		}
+	}
+	if r.Caveat != "" {
+		if _, err := fmt.Fprintf(w, "    ! %s\n", r.Caveat); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// printTrust states how CA trust was established, and how many hardened
+// verdicts were withheld because it was not. It is printed after the tally so
+// an unverified setup is never read as a clean result.
+func printTrust(w io.Writer, results []scan.HostResult, status string) error {
+	switch status {
+	case scan.TrustVerified.String():
+		_, err := fmt.Fprintln(w, "research CA trust: verified from the app's mount namespace")
+		return err
+	case scan.TrustAsserted.String():
+		_, err := fmt.Fprintln(w, "research CA trust: asserted by the operator, not verified by pinscan; hardened verdicts rest on that setup")
+		return err
+	default:
+		withheld := 0
+		for _, r := range results {
+			if r.Caveat != "" {
+				withheld++
+			}
+		}
+		_, err := fmt.Fprintf(w, "research CA trust: UNVERIFIED; %d hardened verdict(s) withheld as inconclusive (run pinscan doctor)\n", withheld)
+		return err
+	}
 }
 
 // printTally prints the aggregate counts, always surfacing inconclusive hosts so

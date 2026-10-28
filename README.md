@@ -33,21 +33,34 @@
   <img alt="pinscan scan output: two hardened hosts, three interceptable, one inconclusive" src="docs/assets/scan.svg" width="900">
 </p>
 
+<p align="center"><sub>Built by the <b>YinkoShield Threat Lab</b> (Yinkozi Group), the team behind our research on malware targeting Africa's financial apps.</sub></p>
+
 Every mobile banking review says "the app implements certificate pinning". pinscan
 replaces that sentence with a measurement. It makes a test device trust a research
 CA, presents the app with three forged certificates of increasing fidelity, and
-records what the app accepts, per host. The login API above pins its key. The
-configuration, push and analytics hosts the same app talks to on startup do not,
-and an attacker holding any certificate the device trusts reads and modifies all
-three.
+records what the app accepts, per host. The login API above rejects every forgery.
+The configuration, push and analytics hosts the same app talks to on startup do
+not, and an attacker holding any certificate the device trusts reads and modifies
+all three.
 
-- **Per-host verdicts on a strength scale**, from `open` to genuine public-key
-  pinning (`spki`), with the evidence behind each one carried into the report.
+We built it because our threat research kept finding apps whose security review
+said "pinned" and whose startup traffic said otherwise, and the tools we had
+could not tell a pinned host from one that simply made no request. We wanted a
+measurement that is honest about what it did not see, that a developer can act
+on, and that CI can re-run on every release.
+
+- **Per-host verdicts on a strength scale**, from `open` to `spki` (every
+  forged chain rejected), with the evidence behind each one carried into the
+  report. Verdicts describe what the app did, not the mechanism that did it.
 - **Separates key pinning from name checking.** A wave that clones the real
   issuer's name under our CA passes name-based "pinning" and fails real pinning.
   A plain MITM proxy cannot tell them apart.
 - **Never reports "hardened" because it saw nothing.** A timeout, a reset or a
   silent connection is `inconclusive`, counted and shown, never a pass.
+- **Never reports "hardened" because the test was broken.** A client that does
+  not trust the research CA rejects every forged chain exactly like a pinned
+  one. pinscan verifies the CA from inside the app's own mount namespace before
+  a rejection counts, and withholds hardened verdicts when it cannot.
 - **Confidence is a separate axis.** A one-shot `spki` and a well-evidenced
   `spki` are not the same thing, and CI can demand the latter.
 - **Built for pipelines.** Exit codes that tell a broken scan from a policy
@@ -88,8 +101,9 @@ pinscan scan com.example.app -report scan.html
 
 > [!TIP]
 > Run `pinscan selftest` first. It mints the certificates, runs the proxy and the
-> classifier against four in-process clients with known postures, and asserts
-> each verdict. If it passes, the methodology works on your machine.
+> classifier against five in-process clients with known postures, including one
+> that does not trust the research CA, and asserts each verdict. If it passes,
+> the methodology works on your machine.
 
 Step by step, including rooting, the two CA-trust modes and finding the package
 name: [Getting started](docs/getting-started.md). No hardware?
@@ -117,7 +131,7 @@ pinning detects, and exactly what name-based checks miss.
 | `spki` | rejected everything, including the cloned issuer | no |
 | `inconclusive` | no usable signal | unknown |
 
-Two rules keep the verdicts honest, and both are in the code, not the docs:
+Three rules keep the verdicts honest, and all three are in the code, not the docs:
 
 - **Acceptance requires an observed request**, not a completed handshake. An app
   can finish the handshake and refuse at the application layer, as OkHttp's
@@ -125,6 +139,11 @@ Two rules keep the verdicts honest, and both are in the code, not the docs:
 - **Only a certificate-class TLS alert counts as a rejection.** `bad_certificate`,
   `unknown_ca` and friends. A timeout, a reset or a non-certificate alert is
   `inconclusive`, never "hardened".
+- **A rejection counts only if the client trusted the research CA.** On Android,
+  pinscan verifies the CA by content from inside the zygote or the app's own
+  mount namespace, refuses to scan when it is absent, and withholds `spki` and
+  `key-pinned` as `inconclusive` when it could not check. The report records
+  `ca_trust` as `verified`, `unverified` or `operator-asserted` (manual driver).
 
 Every verdict carries a confidence (`low`, `medium`, `high`) from how many
 consistent attempts backed it. Full detail: [Methodology](docs/methodology.md).

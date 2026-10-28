@@ -283,23 +283,33 @@ func TestBuildTargetSelectsDriver(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	manual, err := buildTarget(scanOptions{driver: "manual", pkg: "x", caPath: "/ca.pem"}, &buf)
+	ca, err := certmint.NewCA("buildTarget test CA")
+	if err != nil {
+		t.Fatalf("new CA: %v", err)
+	}
+	manual, err := buildTarget(scanOptions{driver: "manual", pkg: "x", caPath: "/ca.pem"}, ca, &buf)
 	if err != nil {
 		t.Fatalf("manual buildTarget: %v", err)
 	}
 	if _, ok := manual.(*target.Manual); !ok {
 		t.Errorf("driver=manual built %T, want *target.Manual", manual)
 	}
+	if scan.TrustOf(manual) != scan.TrustAsserted {
+		t.Errorf("manual target trust = %s, want operator-asserted", scan.TrustOf(manual))
+	}
 
-	android, err := buildTarget(scanOptions{driver: "android", pkg: "com.example.app"}, &buf)
+	android, err := buildTarget(scanOptions{driver: "android", pkg: "com.example.app"}, ca, &buf)
 	if err != nil {
 		t.Fatalf("android buildTarget: %v", err)
 	}
 	if _, ok := android.(*target.Android); !ok {
 		t.Errorf("driver=android built %T, want *target.Android", android)
 	}
+	if scan.TrustOf(android) != scan.TrustUnverified {
+		t.Errorf("android target trust before any probe = %s, want unverified", scan.TrustOf(android))
+	}
 
-	if _, err := buildTarget(scanOptions{driver: "bogus"}, &buf); err == nil {
+	if _, err := buildTarget(scanOptions{driver: "bogus"}, ca, &buf); err == nil {
 		t.Error("buildTarget with an invalid driver = nil error, want an error")
 	}
 }

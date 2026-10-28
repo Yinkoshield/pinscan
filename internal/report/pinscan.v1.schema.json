@@ -28,6 +28,11 @@
         "transparent": { "type": "boolean" },
         "window_seconds": { "type": "integer", "minimum": 0 },
         "ca_sha256": { "type": "string" },
+        "ca_trust": {
+          "type": "string",
+          "enum": ["verified", "operator-asserted", "unverified"],
+          "description": "How trust in the research CA was established (schema 1.1.0). When unverified, hardened verdicts are withheld as inconclusive."
+        },
         "waves_run": {
           "type": "array",
           "items": { "type": "string", "enum": ["generic", "cloned", "issuer"] }

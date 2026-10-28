@@ -21,7 +21,7 @@ import (
 // SchemaVersion is the semantic version of the JSON report contract. A consumer
 // refuses an unknown MAJOR; additive fields bump MINOR. See the JSON Schema
 // returned by [Schema].
-const SchemaVersion = "1.0.0"
+const SchemaVersion = "1.1.0"
 
 // toolName is the tool name written into every report format.
 const toolName = "pinscan"
@@ -54,12 +54,16 @@ type Tool struct {
 // ScanMeta holds the deterministic inputs of a scan — the provenance a reader
 // needs to know what was measured, and under what parameters.
 type ScanMeta struct {
-	Package       string   `json:"package"`
-	Mode          string   `json:"mode"`
-	Transparent   bool     `json:"transparent"`
-	WindowSeconds int      `json:"window_seconds"`
-	CASHA256      string   `json:"ca_sha256"`
-	WavesRun      []string `json:"waves_run"`
+	Package       string `json:"package"`
+	Mode          string `json:"mode"`
+	Transparent   bool   `json:"transparent"`
+	WindowSeconds int    `json:"window_seconds"`
+	CASHA256      string `json:"ca_sha256"`
+	// CATrust is how trust in the research CA was established: "verified",
+	// "operator-asserted" or "unverified" (schema 1.1.0; hardened verdicts
+	// are withheld when unverified).
+	CATrust  string   `json:"ca_trust,omitempty"`
+	WavesRun []string `json:"waves_run"`
 }
 
 // RunMeta holds the volatile, non-diffable facts about a particular run.
@@ -76,8 +80,10 @@ type Meta struct {
 	Transparent bool
 	Window      time.Duration
 	CASHA256    string
-	StartedAt   time.Time
-	Duration    time.Duration
+	// CATrust is the scan's trust status string (see scan.TrustStatus).
+	CATrust   string
+	StartedAt time.Time
+	Duration  time.Duration
 	// Canonical omits the volatile run block, for a stable baseline artifact.
 	Canonical bool
 }
@@ -155,6 +161,7 @@ func Build(meta Meta, results []scan.HostResult, rec *capture.Recorder) Report {
 			Transparent:   meta.Transparent,
 			WindowSeconds: int(meta.Window.Seconds()),
 			CASHA256:      meta.CASHA256,
+			CATrust:       meta.CATrust,
 			WavesRun:      wavesRun(results),
 		},
 		Summary: scan.Summarize(results),

@@ -18,11 +18,14 @@ var (
 	_ scan.Target = (*target.Manual)(nil)
 )
 
-// fakeRunner implements device.Runner, recording issued commands.
+// fakeRunner implements device.Runner, recording issued commands. The
+// rootDefault field answers any root command without an explicit rootOut entry
+// (the trust probe is a generated script).
 type fakeRunner struct {
-	rootOut   map[string]string
-	shellCmds []string
-	rootCmds  []string
+	rootOut     map[string]string
+	rootDefault string
+	shellCmds   []string
+	rootCmds    []string
 }
 
 func (f *fakeRunner) State(context.Context) (string, error) { return "device", nil }
@@ -34,7 +37,10 @@ func (f *fakeRunner) Shell(_ context.Context, cmd string) (string, error) {
 
 func (f *fakeRunner) Root(_ context.Context, cmd string) (string, error) {
 	f.rootCmds = append(f.rootCmds, cmd)
-	return f.rootOut[cmd], nil
+	if out, ok := f.rootOut[cmd]; ok {
+		return out, nil
+	}
+	return f.rootDefault, nil
 }
 
 func anyContains(cmds []string, sub string) bool {
