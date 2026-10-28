@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -81,17 +82,28 @@ func dialRealCert(host string) (*x509.Certificate, error) {
 // dialCert connects to addr, presenting serverName, and returns the leaf
 // certificate. It does not verify the chain — it only reads what is presented.
 func dialCert(serverName, addr string) (*x509.Certificate, error) {
-	dialer := &net.Dialer{Timeout: realCertDialTimeout}
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-		ServerName:         serverName,
-		InsecureSkipVerify: true, //nolint:gosec // we read the presented certificate; we do not trust the connection.
-		MinVersion:         tls.VersionTLS12,
-	})
+	// The timeout bounds the dial and the handshake together, as
+	// tls.DialWithDialer used to.
+	ctx, cancel := context.WithTimeout(context.Background(), realCertDialTimeout)
+	defer cancel()
+	dialer := &tls.Dialer{
+		NetDialer: &net.Dialer{},
+		Config: &tls.Config{
+			ServerName:         serverName,
+			InsecureSkipVerify: true, //nolint:gosec // we read the presented certificate; we do not trust the connection.
+			MinVersion:         tls.VersionTLS12,
+		},
+	}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("dial %q: %w", addr, err)
 	}
 	defer func() { _ = conn.Close() }()
-	certs := conn.ConnectionState().PeerCertificates
+	tlsConn, ok := conn.(*tls.Conn)
+	if !ok {
+		return nil, fmt.Errorf("proxy: unexpected connection type %T", conn)
+	}
+	certs := tlsConn.ConnectionState().PeerCertificates
 	if len(certs) == 0 {
 		return nil, errors.New("proxy: endpoint presented no certificate")
 	}

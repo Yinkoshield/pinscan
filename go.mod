@@ -1,6 +1,6 @@
 module github.com/yinkoshield/pinscan
 
-go 1.21
+go 1.26.0
 
 require (
 	github.com/andybalholm/brotli v1.0.5

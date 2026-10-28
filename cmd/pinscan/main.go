@@ -248,7 +248,7 @@ func caModuleCommand(args []string, stdout, stderr io.Writer) error {
 	}
 	for _, f := range files {
 		p := filepath.Join(*out, f.Path)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			return coded(exitOperational, fmt.Errorf("create %q: %w", p, err))
 		}
 		mode := os.FileMode(0o644)
@@ -418,7 +418,7 @@ func diffCommand(args []string, stdout io.Writer) error {
 
 // loadReport reads and decodes a report JSON file.
 func loadReport(path string) (report.Report, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G703: path is the operator's own CLI argument naming a report file to read.
 	if err != nil {
 		return report.Report{}, fmt.Errorf("read report %q: %w", path, err)
 	}
@@ -742,15 +742,15 @@ func printPolicy(w io.Writer, e policy.Evaluation) error {
 	return nil
 }
 
-// belowConfidence returns the hosts whose verdict confidence is weaker than min,
-// excluding any the policy excludes from gating (ignore).
-func belowConfidence(results []scan.HostResult, min scan.Confidence, eval *policy.Evaluation) []string {
+// belowConfidence returns the hosts whose verdict confidence is weaker than
+// floor, excluding any the policy excludes from gating (ignore).
+func belowConfidence(results []scan.HostResult, floor scan.Confidence, eval *policy.Evaluation) []string {
 	var hosts []string
 	for _, r := range results {
 		if eval != nil && eval.Excluded(r.Host) {
 			continue
 		}
-		if r.Confidence.Below(min) {
+		if r.Confidence.Below(floor) {
 			hosts = append(hosts, r.Host)
 		}
 	}

@@ -150,10 +150,12 @@ func handshake(t *testing.T, serverCfg, clientCfg *tls.Config) (tls.ConnectionSt
 	client := tls.Client(clientConn, clientCfg)
 
 	serverErr := make(chan error, 1)
-	go func() { serverErr <- server.Handshake() }()
+	go func() { serverErr <- server.HandshakeContext(t.Context()) }()
 
-	if err := client.Handshake(); err != nil {
-		<-serverErr // let the server goroutine finish.
+	if err := client.HandshakeContext(t.Context()); err != nil {
+		if serr := <-serverErr; serr != nil { // let the server goroutine finish.
+			t.Logf("server side of the failed handshake: %v", serr)
+		}
 		return tls.ConnectionState{}, err
 	}
 	if err := <-serverErr; err != nil {

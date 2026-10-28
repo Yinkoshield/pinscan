@@ -24,9 +24,10 @@ deliberately high. It is not negotiable per-PR; it is the floor.
   `os.Exit` wrapper in `main()`. We state that boundary rather than paper over
   it with a mock that only tests the mock.
 - **Error paths are tested, not ignored.** `internal/certmint` injects an
-  entropy failure (swapping `randReader`) and a bad certificate template to prove
-  minting *propagates* failures rather than panicking or returning a half-built
-  certificate.
+  entropy failure (swapping `randReader`, which since Go 1.24 reaches serial and
+  signature generation but not `ecdsa.GenerateKey`, which always uses the system
+  CSPRNG) and a bad certificate template to prove minting *propagates* failures
+  rather than panicking or returning a half-built certificate.
 - **We do not game the number.** `certmint`'s residual uncovered lines are
   identical `if err != nil` guards on the *secondary* step of multi-step
   functions, plus one "parse a certificate we just created" guard that is
@@ -45,17 +46,23 @@ deliberately high. It is not negotiable per-PR; it is the floor.
 
 Strict, but never fighting Go idiom (short receiver names stay). Enforced:
 
-- **Correctness:** `staticcheck`, `govet`, `errcheck`, `ineffassign`, `unused`.
+- **Correctness:** `staticcheck` (which in golangci-lint v2 includes the former
+  `gosimple` and `stylecheck`), `govet`, `errcheck`, `ineffassign`, `unused`.
 - **Errors:** `errorlint`, `errname`, `nilerr`, `bodyclose`, `noctx`; wrap with
   `%w` and context (`fmt.Errorf("parse flags: %w", err)`).
 - **Exhaustiveness:** `exhaustive` — every `switch` over an enum handles every
   value (or an explicit `default`).
-- **Clarity:** `revive` (exported/package docs, naming), `gocritic`, `gofumpt`,
-  `goimports`, `godot`, `unparam`, `unconvert`, `nakedret`, `forcetypeassert`.
+- **Clarity:** `revive` (exported/package docs, naming), `gocritic`, `godot`,
+  `unparam`, `unconvert`, `nakedret`, `forcetypeassert`.
+- **Formatting:** `gofumpt` and `goimports`, enforced as formatters; `make fmt`
+  applies them, `make lint` refuses what they would change.
 - **Complexity budgets:** `gocyclo` ≤ 12, `gocognit` ≤ 15.
 - **Security:** `gosec`.
+- **Test hygiene:** `usetesting`, `thelper`, `tparallel`, `paralleltest`.
 - **Honest suppressions:** `nolintlint` requires a specific linter and an
   explanation for every `//nolint`, and rejects unused ones.
+- **No silent exclusions.** The v1 default exclusion that waived missing doc
+  comments is not enabled; every exported symbol carries its comment.
 
 `make lint` must exit 0. No `//nolint` without a reason that survives review.
 
@@ -69,8 +76,9 @@ Strict, but never fighting Go idiom (short receiver names stay). Enforced:
 ## Reproducible builds
 
 - `go build -trimpath -ldflags "-s -w -X main.version=..."`.
-- Tool versions are pinned (`golangci-lint@v1.55.2` in the `Makefile`), never
-  `@latest`, so the gate is deterministic.
+- Tool versions are pinned (`golangci-lint/v2@v2.15.0` in the `Makefile` and in
+  CI; the Go toolchain by the `go` line in `go.mod`, which CI reads via
+  `go-version-file`), never `@latest`, so the gate is deterministic.
 - **We prove it, not just claim it.** `make repro` builds the binary twice and
   byte-compares the two; `make dist` cross-builds with `CGO_ENABLED=0` and writes
   `SHA256SUMS`. Reproducibility is enforced, matching the coverage-honesty stance.

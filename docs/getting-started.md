@@ -24,7 +24,8 @@ this guide is about establishing that trust safely on a device you own.
 
 ## What you'll need
 
-- A computer with **Go 1.21+**.
+- A computer with **Go 1.26+** (an older Go 1.21+ downloads the right toolchain
+  automatically on first build).
 - A **research CA** (a cert + private key) — pinscan creates one for you (step 3).
 - To scan an Android app: a **rooted phone** (Magisk) with **Zygisk** enabled,
   the app installed, and USB debugging on. No phone? You can still try pinscan

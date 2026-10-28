@@ -79,7 +79,7 @@ func TestTransparentCaptureForwardsAndRecords(t *testing.T) {
 	pool.AddCert(realSrv.Certificate())
 	fwd := capture.NewForwarder(&tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, capture.DefaultBodyCap)
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestTransparentCaptureForwardsAndRecords(t *testing.T) {
 func startTransparentServer(t *testing.T, ca *certmint.CA, wave proxy.Wave, realFor proxy.RealCertFunc, obs *proxy.Observer) string {
 	t.Helper()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -128,7 +128,7 @@ func startTransparentServer(t *testing.T, ca *certmint.CA, wave proxy.Wave, real
 func directHandshake(t *testing.T, addr string, clientCfg *tls.Config) error {
 	t.Helper()
 
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(t.Context(), "tcp", addr)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -137,7 +137,7 @@ func directHandshake(t *testing.T, addr string, clientCfg *tls.Config) error {
 		t.Fatalf("set deadline: %v", err)
 	}
 	tlsConn := tls.Client(conn, clientCfg)
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(t.Context()); err != nil {
 		return err
 	}
 	// Send a request so a trusting client is recorded Accepted (the server now
@@ -151,7 +151,7 @@ func directHandshake(t *testing.T, addr string, clientCfg *tls.Config) error {
 func directCaptureExchange(t *testing.T, addr string, clientCfg *tls.Config, host, path string) string {
 	t.Helper()
 
-	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(t.Context(), "tcp", addr)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
@@ -160,7 +160,7 @@ func directCaptureExchange(t *testing.T, addr string, clientCfg *tls.Config, hos
 		t.Fatalf("set deadline: %v", err)
 	}
 	tlsConn := tls.Client(conn, clientCfg)
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(t.Context()); err != nil {
 		t.Fatalf("handshake: %v", err)
 	}
 	if _, err := fmt.Fprintf(tlsConn, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, host); err != nil {

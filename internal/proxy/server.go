@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -153,6 +154,11 @@ func NewServer(ca *certmint.CA, wave Wave, realFor RealCertFunc, obs *Observer, 
 // Serve accepts connections until ln is closed, handling each concurrently and
 // waiting for in-flight connections before returning. A clean close returns nil.
 func (s *Server) Serve(ln net.Listener) error {
+	// ctx spans this Serve call. It is deliberately not canceled when the
+	// listener closes: in-flight handshakes must finish (bounded by the
+	// connection deadline) so their outcome is recorded, not abandoned.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxConcurrentConns)
 	for {
@@ -169,25 +175,25 @@ func (s *Server) Serve(ln net.Listener) error {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			s.handle(conn)
+			s.handle(ctx, conn)
 		}()
 	}
 }
 
 // handle dispatches a connection to the CONNECT or transparent handler.
-func (s *Server) handle(conn net.Conn) {
+func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	if s.transparent {
-		s.handleTransparent(conn)
+		s.handleTransparent(ctx, conn)
 		return
 	}
-	s.handleConn(conn)
+	s.handleConn(ctx, conn)
 }
 
 // handleTransparent terminates TLS directly on a redirected connection (no
 // CONNECT), taking the host from the SNI, and records the outcome. On a
 // successful handshake with capture enabled it serves the tunnel like the
 // CONNECT path.
-func (s *Server) handleTransparent(conn net.Conn) {
+func (s *Server) handleTransparent(ctx context.Context, conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
 	if err := conn.SetDeadline(time.Now().Add(handshakeTimeout)); err != nil {
@@ -195,7 +201,7 @@ func (s *Server) handleTransparent(conn net.Conn) {
 	}
 	var sni string
 	tlsConn := tls.Server(conn, s.transparentConfig(&sni))
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		if sni != "" {
 			outcome, reason := handshakeOutcome(err)
 			s.obs.Record(sni, outcome, reason)
@@ -272,7 +278,7 @@ func (s *Server) transparentConfig(sni *string) *tls.Config {
 
 // handleConn reads the CONNECT target, terminates TLS with the wave certificate,
 // and records whether the client accepted (handshake completed) or rejected it.
-func (s *Server) handleConn(conn net.Conn) {
+func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
 	if err := conn.SetDeadline(time.Now().Add(handshakeTimeout)); err != nil {
@@ -295,7 +301,7 @@ func (s *Server) handleConn(conn net.Conn) {
 	limited.N = math.MaxInt64
 
 	tlsConn := tls.Server(&bufferedConn{reader: reader, Conn: conn}, s.tlsConfigFor(host))
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		outcome, reason := handshakeOutcome(err)
 		s.obs.Record(host, outcome, reason)
 		return

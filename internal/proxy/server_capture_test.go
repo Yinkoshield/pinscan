@@ -109,7 +109,7 @@ func TestServerCaptureLogsEachExchange(t *testing.T) {
 	var logBuf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logBuf, nil))
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestServerCaptureLogsEachExchange(t *testing.T) {
 func startCaptureServer(t *testing.T, ca *certmint.CA, rec *capture.Recorder, fwd *capture.Forwarder, baseURL func(string) string) string {
 	t.Helper()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestServerCaptureRelaysKeepAliveTunnel(t *testing.T) {
 	t.Parallel()
 
 	realSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, r.URL.Path)
+		_, _ = io.WriteString(w, r.URL.Path) //nolint:gosec // G705: a test upstream echoing the path so the tunnel relay can be asserted.
 	}))
 	t.Cleanup(realSrv.Close)
 
@@ -213,7 +213,7 @@ func TestServerCaptureRelaysKeepAliveTunnel(t *testing.T) {
 func openCaptureTunnel(t *testing.T, ca *certmint.CA, proxyAddr, host string) *tls.Conn {
 	t.Helper()
 
-	conn, err := net.DialTimeout("tcp", proxyAddr, 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(t.Context(), "tcp", proxyAddr)
 	if err != nil {
 		t.Fatalf("dial proxy: %v", err)
 	}
@@ -230,7 +230,7 @@ func openCaptureTunnel(t *testing.T, ca *certmint.CA, proxyAddr, host string) *t
 	}
 	_ = connResp.Body.Close()
 	tlsConn := tls.Client(conn, trusting(ca, host))
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(t.Context()); err != nil {
 		t.Fatalf("client handshake: %v", err)
 	}
 	return tlsConn
@@ -239,7 +239,7 @@ func openCaptureTunnel(t *testing.T, ca *certmint.CA, proxyAddr, host string) *t
 func captureClientExchange(t *testing.T, ca *certmint.CA, proxyAddr, host, path string) string {
 	t.Helper()
 
-	conn, err := net.DialTimeout("tcp", proxyAddr, 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(t.Context(), "tcp", proxyAddr)
 	if err != nil {
 		t.Fatalf("dial proxy: %v", err)
 	}
@@ -259,7 +259,7 @@ func captureClientExchange(t *testing.T, ca *certmint.CA, proxyAddr, host, path 
 	_ = connResp.Body.Close()
 
 	tlsConn := tls.Client(conn, trusting(ca, host))
-	if err := tlsConn.Handshake(); err != nil {
+	if err := tlsConn.HandshakeContext(t.Context()); err != nil {
 		t.Fatalf("client handshake: %v", err)
 	}
 	if _, err := fmt.Fprintf(tlsConn, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", path, host); err != nil {

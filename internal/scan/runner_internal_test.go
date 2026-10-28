@@ -63,14 +63,14 @@ func (p *bindProbeTarget) Route(context.Context, string) (func(), error) {
 	return func() {}, nil
 }
 
-func (p *bindProbeTarget) Exercise(context.Context) error {
+func (p *bindProbeTarget) Exercise(ctx context.Context) error {
 	for _, host := range p.hosts {
 		addr := net.JoinHostPort(host, strconv.Itoa(p.port))
 		// A generous timeout: on macOS hosts with virtual interfaces (Parallels,
 		// Docker) a connection to the host's own LAN address can take close to a
 		// second, and these tests run in parallel under the race detector. The
 		// timeout only bounds the failing case; a reachable listener answers fast.
-		conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+		conn, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", addr)
 		p.reached[host] = err == nil
 		if conn != nil {
 			_ = conn.Close()
@@ -79,10 +79,46 @@ func (p *bindProbeTarget) Exercise(context.Context) error {
 	return nil
 }
 
+// lanSelfDialable reports whether a wildcard listener in this process can be
+// reached on the host's own LAN address. On some macOS hosts (virtual network
+// adapters from Parallels or Docker) the first such connection a process makes
+// stalls for several seconds or times out, while later ones are instant; this
+// warm-up absorbs that stall so the test asserts the bind behavior, not the
+// host's network stack. It is a precondition, so it skips rather than fails.
+func lanSelfDialable(t *testing.T, lan string) bool {
+	t.Helper()
+
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "0.0.0.0:0")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_ = c.Close()
+		}
+	}()
+	tcpAddr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		return false
+	}
+	addr := net.JoinHostPort(lan, strconv.Itoa(tcpAddr.Port))
+	conn, err := (&net.Dialer{Timeout: 15 * time.Second}).DialContext(t.Context(), "tcp", addr)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
 func freeTCPPort(t *testing.T) int {
 	t.Helper()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve port: %v", err)
 	}
@@ -189,7 +225,7 @@ func TestServeWhileDrivingWarnsWhenHostIPUnbindable(t *testing.T) {
 func TestServeWhileDrivingFailsWhenScopedAddressIsTaken(t *testing.T) {
 	t.Parallel()
 
-	held, err := net.Listen("tcp", "127.0.0.1:0")
+	held, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("hold address: %v", err)
 	}
@@ -224,6 +260,9 @@ func TestServeWhileDrivingDoesNotScopeToAResolvedHostname(t *testing.T) {
 	}
 	if lan == loopbackIPv4 {
 		t.Skip("no distinct non-loopback address on this host")
+	}
+	if !lanSelfDialable(t, lan) {
+		t.Skipf("this host cannot connect to its own address %s; the assertion needs that", lan)
 	}
 
 	port := freeTCPPort(t)

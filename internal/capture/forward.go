@@ -87,7 +87,7 @@ func (f *Forwarder) Forward(ctx context.Context, recordHost, baseURL string, req
 		return ex, nil
 	}
 
-	resp, err := f.client.Do(out)
+	resp, err := f.client.Do(out) //nolint:gosec // G704: forwarding the intercepted request to its real upstream is this component's purpose.
 	if err != nil {
 		ex.Err = fmt.Sprintf("forward: %v", err)
 		return ex, nil
@@ -112,7 +112,7 @@ func (f *Forwarder) Forward(ctx context.Context, recordHost, baseURL string, req
 // the full (unredacted) body and headers so the upstream behaves exactly as if
 // the app reached it directly. The Host header is set to the real hostname.
 func (f *Forwarder) buildOutbound(ctx context.Context, recordHost, baseURL string, req *http.Request, body []byte) (*http.Request, error) {
-	out, err := http.NewRequestWithContext(ctx, req.Method, baseURL+req.URL.RequestURI(), bytes.NewReader(body))
+	out, err := http.NewRequestWithContext(ctx, req.Method, baseURL+req.URL.RequestURI(), bytes.NewReader(body)) //nolint:gosec // G704: the outbound URL is the intercepted request's real upstream by design.
 	if err != nil {
 		return nil, fmt.Errorf("capture: %w", err)
 	}

@@ -53,7 +53,7 @@ repro: ## Prove the build is reproducible: build twice and byte-compare.
 	fi
 
 tools: ## Install pinned dev tooling.
-	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.55.2
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
 
 clean: ## Remove build artefacts.
 	rm -rf bin dist coverage.out

@@ -1,16 +1,22 @@
-# Strict, idiomatic-Go linting. Pedantic by intent: the tool is a reference for
-# how YinkoShield writes code, so the bar is high but never fights Go idiom
-# (short receiver names, etc. stay).
+# Strict, idiomatic-Go linting (golangci-lint v2 configuration). Pedantic by
+# intent: the tool is a reference for how YinkoShield writes code, so the bar
+# is high but never fights Go idiom (short receiver names, etc. stay).
+#
+# Migrated from the v1 configuration with `golangci-lint migrate`, then
+# reviewed by hand. Differences from v1 that are not just schema: `gosimple`
+# is part of `staticcheck` in v2; `tenv` was removed in v2 and `usetesting`
+# is its replacement; `gofumpt` and `goimports` are formatters now, enforced
+# under `formatters` rather than as linters.
+version: "2"
+
 run:
-  timeout: 3m
   tests: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
-    # Correctness / the staticcheck family.
+    # Correctness / the staticcheck family (staticcheck includes the former gosimple and stylecheck).
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
@@ -24,8 +30,6 @@ linters:
     # Style / clarity.
     - revive
     - gocritic
-    - gofumpt
-    - goimports
     - misspell
     - godot
     - whitespace
@@ -45,49 +49,64 @@ linters:
     # Security.
     - gosec
     # Test hygiene.
-    - tenv
+    - usetesting
     - thelper
     - tparallel
     - paralleltest
     # Keep //nolint honest.
     - nolintlint
-
-linters-settings:
-  exhaustive:
-    default-signifies-exhaustive: true
-  gocyclo:
-    min-complexity: 12
-  gocognit:
-    min-complexity: 15
-  misspell:
-    locale: US
-  godot:
-    scope: declarations
-    capital: true
-  nolintlint:
-    require-explanation: true
-    require-specific: true
-    allow-unused: false
-  revive:
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    gocyclo:
+      min-complexity: 12
+    gocognit:
+      min-complexity: 15
+    misspell:
+      locale: US
+    godot:
+      scope: declarations
+      capital: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: receiver-naming
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: unused-parameter
+  exclusions:
+    generated: lax
+    # The v1 default exclusions this project relied on, made explicit. The
+    # `comments` preset is deliberately NOT enabled: every exported symbol must
+    # carry its doc comment (revive `exported`, `package-comments`).
+    presets:
+      - common-false-positives
+      - std-error-handling
     rules:
-      - name: exported
-      - name: package-comments
-      - name: var-naming
-      - name: receiver-naming
-      - name: error-return
-      - name: error-strings
-      - name: error-naming
-      - name: if-return
-      - name: unreachable-code
-      - name: redefines-builtin-id
-      - name: superfluous-else
-      - name: unused-parameter
+      # Table-driven tests legitimately repeat structure and literal values
+      # (hosts, package names, command strings); constants would hide what each
+      # case asserts.
+      - path: _test\.go
+        linters:
+          - dupl
+          - goconst
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-    # Table-driven tests legitimately repeat structure.
-    - path: _test\.go
-      linters:
-        - dupl

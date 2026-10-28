@@ -23,6 +23,9 @@ import (
 // returned by [Schema].
 const SchemaVersion = "1.0.0"
 
+// toolName is the tool name written into every report format.
+const toolName = "pinscan"
+
 //go:embed pinscan.v1.schema.json
 var schemaJSON []byte
 
@@ -145,7 +148,7 @@ func Build(meta Meta, results []scan.HostResult, rec *capture.Recorder) Report {
 
 	rep := Report{
 		SchemaVersion: SchemaVersion,
-		Tool:          Tool{Name: "pinscan", Version: meta.ToolVersion},
+		Tool:          Tool{Name: toolName, Version: meta.ToolVersion},
 		Scan: ScanMeta{
 			Package:       meta.Package,
 			Mode:          meta.Mode,

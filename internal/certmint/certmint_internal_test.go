@@ -28,9 +28,10 @@ func TestMintPropagatesEntropyFailure(t *testing.T) { //nolint:paralleltest // m
 	t.Cleanup(func() { randReader = orig })
 	randReader = failingReader{}
 
-	if _, err := newKey(); err == nil {
-		t.Error("newKey without entropy = nil error, want an error")
-	}
+	// newKey is deliberately not asserted here: since Go 1.24, ecdsa.GenerateKey
+	// draws from the system CSPRNG regardless of the reader it is given, so an
+	// injected entropy failure no longer reaches key generation. The serial and
+	// the signature still do, which is what the assertions below exercise.
 	if _, err := newSerial(); err == nil {
 		t.Error("newSerial without entropy = nil error, want an error")
 	}

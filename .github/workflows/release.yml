@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0 # goreleaser needs the tag history for the changelog
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.21"
+          go-version-file: go.mod
       - name: Gate (the same checks as ci.yml, on the exact release commit)
         run: |
           go mod verify
