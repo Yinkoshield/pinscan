@@ -48,7 +48,8 @@ cmd.scanCommand
        ├─ Target.Preflight
        └─ scan.Run(ctx, cfg.WaveFunc())
             For each wave A, B, (C if key-pinned):
-              proxy.NewServer(CA, wave, resolver.Cert, observer [,WithCapture][,WithTransparent])
+              proxy.NewServer(CA, wave, resolver.Cert, observer [,WithCapture][,WithTransparent][,WithPassthrough])
+                 a passthrough host is relayed to host:443 untouched and recorded Ambiguous/"passthrough"
               serveWhileDriving:
                  listen → Serve(ln) ↑goroutine
                  driveTarget:
@@ -59,6 +60,7 @@ cmd.scanCommand
             classifyAll:
               classify.Classify(per-host A/B/C outcomes) → Verdict
               scan.ConfidenceOf(verdict, waves)          → Confidence
+              passthrough reasons                        → Caveat "not tested"
             → []scan.HostResult
   └─ finishScan
        ├─ scan.Summarize
@@ -77,6 +79,13 @@ cmd.scanCommand
 - **Outcomes are four-valued.** `Accepted / Rejected / Ambiguous / NotObserved`.
   Only a genuine certificate-class rejection is `Rejected`; noise is `Ambiguous`.
   This is what stops "secure from silence" — see [methodology](methodology.md).
+- **Passthrough is an edge, not a verdict.** The proxy relays a listed host
+  (matched by `internal/hostmatch`, fed from the CLI and the policy) and
+  records it `Ambiguous`; the classifier is untouched and yields
+  `inconclusive`, so a host that was not tested can never read as hardened.
+  In transparent mode the SNI is parsed from the raw ClientHello
+  (`internal/proxy/sni.go`) before the handshake, since the standard library
+  exposes no parser for a record it has not consumed.
 - **`scan.Target` abstracts the client.** The orchestrator never mentions
   Android. Android and Manual are two implementations; a new one (an emulator
   harness, another OS) is just another implementation of

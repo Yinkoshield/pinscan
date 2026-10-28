@@ -29,6 +29,7 @@ import (
 	"github.com/yinkoshield/pinscan/internal/certmint"
 	"github.com/yinkoshield/pinscan/internal/classify"
 	"github.com/yinkoshield/pinscan/internal/device"
+	"github.com/yinkoshield/pinscan/internal/hostmatch"
 	"github.com/yinkoshield/pinscan/internal/policy"
 	"github.com/yinkoshield/pinscan/internal/proxy"
 	"github.com/yinkoshield/pinscan/internal/report"
@@ -163,8 +164,8 @@ func selftestCommand(stdout io.Writer) error {
 			status = "FAIL"
 			failed++
 		}
-		if _, err := fmt.Fprintf(stdout, "%-20s want=%-16s got=%-16s %s\n",
-			c.Posture, c.Want, c.Got, status); err != nil {
+		if _, err := fmt.Fprintf(stdout, "%-20s want=%-16s got=%-16s %-4s reason=%s\n",
+			c.Posture, c.Want, c.Got, status, c.Reason); err != nil {
 			return err
 		}
 	}
@@ -493,6 +494,9 @@ type scanOptions struct {
 	failOnRegression bool
 	minConfidence    scan.Confidence
 	pol              *policy.Policy
+	// passthrough names the hosts relayed untouched: the -passthrough flags
+	// merged with the policy's passthrough rules. Empty when there are none.
+	passthrough *hostmatch.Matcher
 }
 
 // scanCommand runs a scan and prints each host's verdict.
@@ -567,6 +571,13 @@ func executeScan(ctx context.Context, opts scanOptions, instrOut io.Writer) ([]s
 		Window:     opts.window,
 		CaptureMax: opts.captureMax,
 	}
+	if !opts.passthrough.Empty() {
+		cfg.Passthrough = opts.passthrough.Match
+		opts.logger.Info("passthrough hosts relayed untouched, not tested", "patterns", opts.passthrough.Patterns())
+	}
+	if opts.passthrough.MatchesAll() {
+		opts.logger.Warn("every host is relayed: this run tests nothing and only lists the hosts the app contacted")
+	}
 	opts.logger.Info("scan started",
 		"target", opts.pkg, "driver", opts.driver, "host", ip, "port", opts.port,
 		"mode", opts.mode.String(), "window", opts.window.String())
@@ -620,7 +631,8 @@ func caIdentity(ca *certmint.CA) (file, sha string) {
 func finishScan(ctx context.Context, cfg scan.Config, opts scanOptions, stdout io.Writer, results []scan.HostResult, meta report.Meta) error {
 	sum := scan.Summarize(results)
 	opts.logger.Info("scan finished",
-		"hosts", sum.Hosts, "interceptable", sum.Interceptable, "inconclusive", sum.Inconclusive)
+		"hosts", sum.Hosts, "interceptable", sum.Interceptable, "inconclusive", sum.Inconclusive,
+		"passthrough", sum.Passthrough)
 
 	var rec *capture.Recorder
 	if opts.capture {
@@ -951,6 +963,8 @@ func parseScanArgsInto(fs *flag.FlagSet, args []string, stderr io.Writer) (scanO
 	failOnReg := fs.Bool("fail-on-regression", false, "exit non-zero if the posture regressed against the baseline")
 	minConf := fs.String("min-confidence", "", "require every host's verdict to be at least this confident: low, medium or high")
 	policyPath := fs.String("policy", "", "apply a .pinscan.yaml expectation/allowlist file")
+	var passthrough stringList
+	fs.Var(&passthrough, "passthrough", "relay this host to its real server untouched instead of testing it (repeatable; exact host, *.suffix, or * for every host); it reads inconclusive")
 	explain := fs.Bool("explain", false, "print a plain-language pinning-mechanism line under each verdict")
 	transparent := fs.Bool("transparent", false, "intercept via a device-side DNAT redirect (for apps that ignore the HTTP proxy)")
 	pkg, err := parsePositional(fs, args)
@@ -979,7 +993,7 @@ func parseScanArgsInto(fs *flag.FlagSet, args []string, stderr io.Writer) (scanO
 	if err != nil {
 		return scanOptions{}, err
 	}
-	pol, err := loadPolicyOpt(*policyPath)
+	pol, matcher, err := loadPolicyAndPassthrough(*policyPath, passthrough)
 	if err != nil {
 		return scanOptions{}, err
 	}
@@ -994,8 +1008,38 @@ func parseScanArgsInto(fs *flag.FlagSet, args []string, stderr io.Writer) (scanO
 		reportPath: *reportPath, explain: *explain,
 		transparent: *transparent, failOnInconc: *failOnInc,
 		baselinePath: *baselinePath, failOnRegression: *failOnReg,
-		minConfidence: minConfidence, pol: pol,
+		minConfidence: minConfidence, pol: pol, passthrough: matcher,
 	}, nil
+}
+
+// stringList collects a repeatable string flag.
+type stringList []string
+
+func (l *stringList) String() string { return strings.Join(*l, ",") }
+
+func (l *stringList) Set(v string) error {
+	*l = append(*l, v)
+	return nil
+}
+
+// loadPolicyAndPassthrough loads the optional policy and merges its passthrough
+// hosts with the -passthrough flags into one matcher, so both sources follow the
+// same rule. The bare "*" is accepted as the explicit relay-everything run;
+// a malformed wildcard is a usage error.
+func loadPolicyAndPassthrough(policyPath string, flags []string) (*policy.Policy, *hostmatch.Matcher, error) {
+	pol, err := loadPolicyOpt(policyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	patterns := append([]string(nil), flags...)
+	if pol != nil {
+		patterns = append(patterns, pol.PassthroughHosts()...)
+	}
+	matcher, err := hostmatch.New(patterns...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("passthrough: %w", err)
+	}
+	return pol, matcher, nil
 }
 
 // validateDriver errors on an unknown scan driver.
@@ -1163,10 +1207,16 @@ func printTrust(w io.Writer, results []scan.HostResult, status string) error {
 }
 
 // printTally prints the aggregate counts, always surfacing inconclusive hosts so
-// an incomplete scan never reads as a clean pass.
+// an incomplete scan never reads as a clean pass. Passthrough hosts get their
+// own bucket, so a relayed host never reads as verified or as hardened.
 func printTally(w io.Writer, s scan.Summary) error {
-	_, err := fmt.Fprintf(w, "\n%d host(s): %d interceptable, %d inconclusive (not verified), %d hardened\n",
-		s.Hosts, s.Interceptable, s.Inconclusive, s.Hosts-s.Interceptable-s.Inconclusive)
+	if s.Passthrough == 0 {
+		_, err := fmt.Fprintf(w, "\n%d host(s): %d interceptable, %d inconclusive (not verified), %d hardened\n",
+			s.Hosts, s.Interceptable, s.NotVerified(), s.Hardened())
+		return err
+	}
+	_, err := fmt.Fprintf(w, "\n%d host(s): %d interceptable, %d inconclusive (not verified), %d passthrough (not tested), %d hardened\n",
+		s.Hosts, s.Interceptable, s.NotVerified(), s.Passthrough, s.Hardened())
 	return err
 }
 

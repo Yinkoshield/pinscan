@@ -80,6 +80,61 @@ func TestRunSkipsWaveCWhenNothingKeyPinned(t *testing.T) {
 	}
 }
 
+func TestRunPassthroughHostIsInconclusiveWithCaveat(t *testing.T) {
+	t.Parallel()
+
+	// The proxy records a passthrough host Ambiguous with reason "passthrough"
+	// in every wave; no classifier change is involved. The host must come out
+	// inconclusive (never hardened: it was not tested) and say why.
+	passthrough := scan.WaveObservation{Outcome: classify.Ambiguous, Reason: proxy.ReasonPassthrough}
+	wave := func(context.Context, proxy.Wave) (map[string]scan.WaveObservation, error) {
+		return map[string]scan.WaveObservation{
+			"login.example.com": passthrough,
+			"pin.example.com":   {Outcome: classify.Rejected, Reason: "tls_alert_bad_certificate"},
+		}, nil
+	}
+	results, err := scan.Run(context.Background(), wave)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	byHost := map[string]scan.HostResult{}
+	for _, r := range results {
+		byHost[r.Host] = r
+	}
+	login := byHost["login.example.com"]
+	if login.Verdict != classify.Inconclusive {
+		t.Errorf("passthrough verdict = %s, want inconclusive", login.Verdict)
+	}
+	if !login.Passthrough() {
+		t.Error("Passthrough() = false for a relayed host")
+	}
+	if login.Caveat != scan.CaveatPassthrough {
+		t.Errorf("caveat = %q, want %q", login.Caveat, scan.CaveatPassthrough)
+	}
+	// The host next to it is still measured normally.
+	pin := byHost["pin.example.com"]
+	if pin.Verdict != classify.SPKI || pin.Passthrough() || pin.Caveat != "" {
+		t.Errorf("neighbor = %+v, want spki with no passthrough caveat", pin)
+	}
+}
+
+func TestPassthroughDialFailureIsStillPassthrough(t *testing.T) {
+	t.Parallel()
+
+	r := scan.HostResult{Host: "down.example.com", Verdict: classify.Inconclusive, Waves: map[string]scan.WaveObservation{
+		"generic": {Outcome: classify.Ambiguous, Reason: proxy.ReasonPassthroughDialFailed},
+	}}
+	if !r.Passthrough() {
+		t.Error("a passthrough host whose real server was unreachable must still read as passthrough")
+	}
+	quiet := scan.HostResult{Host: "quiet.example.com", Verdict: classify.Inconclusive, Waves: map[string]scan.WaveObservation{
+		"generic": {Outcome: classify.Ambiguous, Reason: "handshake_ok_no_request"},
+	}}
+	if quiet.Passthrough() {
+		t.Error("an ordinary inconclusive host must not read as passthrough")
+	}
+}
+
 func TestRunPropagatesWaveErrors(t *testing.T) {
 	t.Parallel()
 

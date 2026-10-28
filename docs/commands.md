@@ -35,6 +35,7 @@ Runs the waves against the target and prints each host's verdict + a tally.
 | `-explain` | off | print a plain-language mechanism line under each verdict |
 | `-report` | — | write an artifact; format from the extension (`.json` `.md` `.html` `.sarif` `.xml`) |
 | `-policy` | — | apply a `.pinscan.yaml` expectation/allowlist file |
+| `-passthrough` | — | relay this host to its real server untouched instead of testing it; repeatable; exact host, `*.suffix`, or `*` for every host; merged with the policy's `passthrough: true` hosts (see [CI integration](ci.md#passthrough-hosts)) |
 | `-baseline` | — | compare against this baseline JSON and report regressions |
 | `-min-confidence` | — | require every verdict to be at least `low` / `medium` / `high` |
 | `-fail-on-interceptable` | off | exit `3` if any (non-exempt) host is interceptable |
@@ -46,6 +47,29 @@ Runs the waves against the target and prints each host's verdict + a tally.
 
 For the `android` driver `<target>` is the app package; for `manual` it is any
 label for the client. See [exit codes](ci.md#exit-codes).
+
+A passthrough host is **not tested**: it reads `inconclusive` with reason
+`passthrough`, counts in the tally as "passthrough (not tested)", and carries
+the caveat "passthrough: relayed to the real server, not tested" in every
+report. Use it to let an app whose login API is key-pinned get past login, so
+the hosts it contacts afterwards are the ones measured:
+
+```sh
+pinscan scan com.example.app -passthrough login.example.com -passthrough '*.auth.example.com'
+```
+
+The bare `*` relays **every** host: a discovery run for an app whose very first
+connection is pinned so tightly that no wave ever sees a request. Nothing is
+tested, but every host the app contacts is still listed (from its CONNECT target
+or SNI), each `inconclusive` with reason `passthrough`, and the tally reads
+"N passthrough (not tested), 0 hardened". A warning is logged at start. Use it to
+learn the host list, then scan again with only the pinned host passed through.
+A malformed wildcard (`*.`, `api.*.example`) is refused, so a typo cannot blind
+a scan by accident.
+
+```sh
+pinscan scan com.example.app -passthrough '*'      # list the hosts, test nothing
+```
 
 ## `doctor [package]`
 
@@ -127,5 +151,8 @@ commit it for your consumers.
 ## `selftest`
 
 Runs the methodology against in-process known-posture clients and asserts each
-verdict. Prints a line per posture; exits non-zero if any misclassifies. No
-device needed — suitable as a required CI check.
+verdict. Prints a line per posture with the generic-wave reason behind it;
+exits non-zero if any misclassifies. One posture is a key-pinning client whose
+host is on the passthrough list, asserted to read `inconclusive` with reason
+`passthrough` rather than `spki`. No device needed — suitable as a required CI
+check.

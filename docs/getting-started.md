@@ -233,8 +233,19 @@ pinscan scan com.example.app -capture-out traffic.har # dump all captured traffi
 pinscan scan com.example.app -report scan.html        # a shareable artifact
 ```
 
+If the app stops at its very first connection because that host is pinned (no
+session, no further hosts, everything `inconclusive`), let that one host through
+and scan the rest. The relayed host is reported as "not tested", never as
+hardened:
+
+```sh
+pinscan scan com.example.app -passthrough login.example.com   # relay the pinned login, test the rest
+pinscan scan com.example.app -passthrough '*'                 # relay everything: list the hosts, test nothing
+```
+
 Full flag list: [command reference](commands.md). Output formats and the capture
-redaction rules: [output.md](output.md).
+redaction rules: [output.md](output.md). Passthrough in detail:
+[CI integration](ci.md#passthrough-hosts).
 
 ## 10. Prove the methodology (no device needed)
 
@@ -256,7 +267,12 @@ adb shell settings put global http_proxy :0     # clear the proxy pinscan set
 ```
 
 pinscan restores routing itself after each scan; the above removes the CA-trust
-module when you're done so the device stops trusting the research CA.
+module when you're done so the device stops trusting the research CA. Between
+scans of different apps, stop the one you just tested
+(`adb shell am force-stop <package>`): in the default proxy mode the device's
+HTTP proxy is global, so an app still running in the background sends its
+traffic through pinscan too (see
+[Scanning Android](android.md#mobile-specific-notes)).
 
 ## Next
 

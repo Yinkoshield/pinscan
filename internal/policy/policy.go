@@ -1,8 +1,8 @@
 // Package policy loads a .pinscan.yaml expectation/allowlist file and evaluates
 // a scan against it. It lets a team declare, per host and with a mandatory
 // reason: a minimum expected verdict (expect), an accepted interceptable risk
-// (allow), or exclusion from gating (ignore). Accepted risks are surfaced, never
-// hidden.
+// (allow), exclusion from gating (ignore), or relay to the real server without
+// testing (passthrough). Accepted risks are surfaced, never hidden.
 package policy
 
 import (
@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/yinkoshield/pinscan/internal/classify"
+	"github.com/yinkoshield/pinscan/internal/hostmatch"
 	"github.com/yinkoshield/pinscan/internal/scan"
 	"gopkg.in/yaml.v3"
 )
@@ -22,8 +23,18 @@ type Rule struct {
 	Expect string `yaml:"expect"`
 	Allow  bool   `yaml:"allow"`
 	Ignore bool   `yaml:"ignore"`
-	Reason string `yaml:"reason"`
+	// Passthrough relays the host to its real server untouched, so an app can
+	// get past a key-pinned login and expose its other hosts. The host is not
+	// tested and reads inconclusive; it cannot also carry an Expect. The host
+	// key may be a "*." wildcard, or the bare "*" that relays every host (a
+	// discovery run that tests nothing); both are only valid with Passthrough.
+	Passthrough bool   `yaml:"passthrough"`
+	Reason      string `yaml:"reason"`
 }
+
+// isWildcard reports whether a host key names a family of hosts ("*.suffix")
+// or every host ("*") rather than one host.
+func isWildcard(host string) bool { return strings.HasPrefix(host, "*") }
 
 // Policy is a parsed .pinscan.yaml.
 type Policy struct {
@@ -78,7 +89,10 @@ func Load(path string) (Policy, error) {
 	return p, nil
 }
 
-// validate enforces that every rule has a reason and a known expect verdict.
+// validate enforces that every rule has a reason and a known expect verdict,
+// that a passthrough host carries no expectation (an untested host cannot meet
+// one) and names a valid host or wildcard, and that a wildcard key appears only
+// on a passthrough rule (every other rule is looked up by exact host).
 func (p Policy) validate() error {
 	for _, host := range sortedHosts(p.Hosts) {
 		rule := p.Hosts[host]
@@ -90,8 +104,40 @@ func (p Policy) validate() error {
 				return fmt.Errorf("policy: host %q has invalid expect %q", host, rule.Expect)
 			}
 		}
+		if err := validatePassthrough(host, rule); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// validatePassthrough checks the passthrough-specific constraints of one rule.
+func validatePassthrough(host string, rule Rule) error {
+	if !rule.Passthrough {
+		if isWildcard(host) {
+			return fmt.Errorf("policy: host %q: a wildcard host is only valid with passthrough", host)
+		}
+		return nil
+	}
+	if rule.Expect != "" {
+		return fmt.Errorf("policy: host %q cannot have both expect and passthrough (a passthrough host is not tested)", host)
+	}
+	if _, err := hostmatch.New(host); err != nil {
+		return fmt.Errorf("policy: host %q: %w", host, err)
+	}
+	return nil
+}
+
+// PassthroughHosts returns the host keys (exact names or "*." wildcards) of the
+// rules marked passthrough, sorted, for the scan's passthrough matcher.
+func (p Policy) PassthroughHosts() []string {
+	var out []string
+	for _, host := range sortedHosts(p.Hosts) {
+		if p.Hosts[host].Passthrough {
+			out = append(out, host)
+		}
+	}
+	return out
 }
 
 // Evaluate applies the policy to a scan's results.
@@ -108,7 +154,8 @@ func (p Policy) Evaluate(results []scan.HostResult) Evaluation {
 
 	for _, host := range sortedHosts(p.Hosts) {
 		rule := p.Hosts[host]
-		if !seen[host] && !rule.Ignore {
+		// A wildcard names a family, not one host: nothing to report as unseen.
+		if !seen[host] && !rule.Ignore && !isWildcard(host) {
 			e.Unobserved = append(e.Unobserved, Finding{host, "not observed this scan", rule.Reason})
 		}
 	}

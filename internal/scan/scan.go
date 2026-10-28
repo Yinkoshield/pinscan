@@ -46,6 +46,22 @@ type HostResult struct {
 // attacker.
 func (r HostResult) Interceptable() bool { return r.Verdict.Defeatable() }
 
+// Passthrough reports whether the host was relayed to its real server instead
+// of being tested: some wave recorded it with a passthrough reason (see
+// [proxy.ReasonPassthrough]). Such a host is inconclusive by construction, and
+// the report must say why.
+func (r HostResult) Passthrough() bool {
+	for _, obs := range r.Waves {
+		if obs.Reason == proxy.ReasonPassthrough || obs.Reason == proxy.ReasonPassthroughDialFailed {
+			return true
+		}
+	}
+	return false
+}
+
+// CaveatPassthrough qualifies the verdict of a host that was relayed untouched.
+const CaveatPassthrough = "passthrough: relayed to the real server, not tested"
+
 // Run executes wave A (generic) and wave B (cloned-metadata), then wave C
 // (cloned-issuer) only if some host genuinely rejected both, and classifies
 // every host seen across the waves.
@@ -82,7 +98,9 @@ func anyKeyPinned(generic, cloned map[string]WaveObservation) bool {
 }
 
 // classifyAll classifies every host seen in any wave, attaching the per-wave
-// evidence. A nil wave map yields NotObserved for its outcomes.
+// evidence. A nil wave map yields NotObserved for its outcomes. A passthrough
+// host is classified by the same rules as any other (its ambiguous outcomes
+// make it inconclusive) and additionally carries [CaveatPassthrough].
 func classifyAll(generic, cloned, issuer map[string]WaveObservation) []HostResult {
 	hosts := sortedHosts(generic, cloned, issuer)
 	results := make([]HostResult, 0, len(hosts))
@@ -94,12 +112,16 @@ func classifyAll(generic, cloned, issuer map[string]WaveObservation) []HostResul
 			Issuer:  issuer[host].Outcome,
 		}).Verdict
 		waves := wavesFor(host, generic, cloned, issuer)
-		results = append(results, HostResult{
+		r := HostResult{
 			Host:       host,
 			Verdict:    verdict,
 			Confidence: ConfidenceOf(verdict, waves),
 			Waves:      waves,
-		})
+		}
+		if r.Passthrough() {
+			r.Caveat = CaveatPassthrough
+		}
+		results = append(results, r)
 	}
 	return results
 }

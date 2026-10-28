@@ -49,6 +49,11 @@ type Config struct {
 	Window   time.Duration
 	// CaptureMax caps each recorded body in bytes; 0 uses the default.
 	CaptureMax int
+	// Passthrough, when set, names the hosts the proxy relays to their real
+	// server untouched instead of testing them (see [proxy.WithPassthrough]).
+	// It applies to every wave and to the capture pass, since a forged login
+	// would stall a capture the same way.
+	Passthrough func(host string) bool
 }
 
 func (cfg Config) log() *slog.Logger {
@@ -109,12 +114,17 @@ func (cfg Config) RunCapture(ctx context.Context) (*capture.Recorder, error) {
 }
 
 // serverOpts returns the proxy server options for this scan, appending any
-// extra options. A transparent target adds [proxy.WithTransparent].
+// extra options. A transparent target adds [proxy.WithTransparent]; a
+// passthrough list adds [proxy.WithPassthrough].
 func (cfg Config) serverOpts(extra ...proxy.ServerOption) []proxy.ServerOption {
+	opts := extra
 	if cfg.Target.Transparent() {
-		return append(extra, proxy.WithTransparent())
+		opts = append(opts, proxy.WithTransparent())
 	}
-	return extra
+	if cfg.Passthrough != nil {
+		opts = append(opts, proxy.WithPassthrough(cfg.Passthrough))
+	}
+	return opts
 }
 
 // serveWhileDriving starts srv on the scan port, drives the target for one

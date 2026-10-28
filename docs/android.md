@@ -213,6 +213,13 @@ pinscan scan -transparent com.example.app
 
 # See what interceptable hosts expose (startup/unauthenticated surface only):
 pinscan scan -capture com.example.app
+
+# The login API is key-pinned and the app stops there: relay it untouched so the
+# app logs in, and test the hosts behind it (the relayed host reads "not tested"):
+pinscan scan -passthrough login.example.com com.example.app
+
+# Discovery run: relay every host, test nothing, list what the app contacts:
+pinscan scan -passthrough '*' com.example.app
 ```
 
 ## Mobile-specific notes
@@ -223,6 +230,18 @@ pinscan scan -capture com.example.app
   push, telemetry) come and go, so the exact host list differs per run. The
   app's own hosts are stable. A host that isn't contacted in a run shows up as
   `inconclusive` (not a pass).
+- **Proxy mode sees every app, not just the target.** The device's HTTP proxy
+  is global, so any other app that honours it and is running during the window
+  (an app you scanned a moment ago and never stopped, a background service)
+  sends its traffic through pinscan too, and its hosts appear in the results.
+  In **scoped** mode such an app does not trust the research CA, so it rejects
+  every forged certificate exactly like a pinned app, and its hosts can read
+  `spki`: pinscan verifies CA trust for the target app, not for bystanders.
+  Before scanning, stop the apps you tested earlier
+  (`adb shell am force-stop <package>`; pinscan only force-stops the target), or
+  use `-transparent`, whose redirect is scoped to the target's UID. Hosts you
+  know belong to another app can also be excluded from the verdicts with
+  `-passthrough <host>`, which relays them and reports them as not tested.
 - **Capture is for the startup / unauthenticated surface only.** Do not point
   `-capture` at an authenticated flow. Credential headers are redacted and
   bodies capped regardless, as defence in depth — see [output](output.md).
@@ -236,7 +255,9 @@ pinscan scan -capture com.example.app
 | `settings put global http_proxy <host:port>` | proxy routing | reset to `:0` on teardown |
 | `iptables -t nat -A OUTPUT … DNAT` (UID-scoped) | transparent routing | deleted on teardown |
 | `iptables -I OUTPUT … udp/443 REJECT` and, with `ip6tables`, `ip6tables -I OUTPUT … 443 REJECT` (UID-scoped) | transparent routing | deleted on teardown |
-| `am force-stop` + `monkey` launch | each wave | — |
+| `am force-stop` + `monkey` launch | each wave, target app only | — |
+| outbound TCP to `<passthrough host>:443` from the host machine | `-passthrough`, per relayed connection | closed when the app or the server closes, or after 20 s idle |
 
 It never installs the module or the CA for you — that is the one-time setup
-above, which `doctor` checks.
+above, which `doctor` checks. It never stops other apps either: see
+"Proxy mode sees every app" above.

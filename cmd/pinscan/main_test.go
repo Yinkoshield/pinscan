@@ -75,7 +75,7 @@ func TestRunSelftestPasses(t *testing.T) {
 		t.Fatalf("run(selftest) returned error: %v\n%s", err, stdout.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"no-pinning", "metadata-validation", "name-validation", "spki-pinning", "selftest passed"} {
+	for _, want := range []string{"no-pinning", "metadata-validation", "name-validation", "spki-pinning", "passthrough", "reason=passthrough", "selftest passed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("selftest output missing %q\n%s", want, out)
 		}
@@ -366,6 +366,135 @@ func TestHostChecksCA(t *testing.T) {
 	}
 	if ca.OK || !ca.Required {
 		t.Errorf("missing CA should fail a required check: %+v", ca)
+	}
+}
+
+func TestParseScanArgsPassthroughIsRepeatable(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseScanArgs([]string{"-passthrough", "login.example.com", "-passthrough", "*.auth.example", "com.example.app"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("parseScanArgs: %v", err)
+	}
+	if opts.passthrough.Empty() {
+		t.Fatal("passthrough matcher is empty after two -passthrough flags")
+	}
+	for host, want := range map[string]bool{
+		"login.example.com":  true,
+		"LOGIN.example.com":  true,
+		"sso.auth.example":   true,
+		"a.b.auth.example":   true,
+		"auth.example":       false,
+		"api.example.com":    false,
+		"xlogin.example.com": false,
+	} {
+		if got := opts.passthrough.Match(host); got != want {
+			t.Errorf("Match(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+func TestParseScanArgsNoPassthroughLeavesMatcherEmpty(t *testing.T) {
+	t.Parallel()
+
+	opts, err := parseScanArgs([]string{"com.example.app"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("parseScanArgs: %v", err)
+	}
+	if !opts.passthrough.Empty() {
+		t.Errorf("passthrough patterns = %q without any -passthrough flag", opts.passthrough.Patterns())
+	}
+}
+
+func TestParseScanArgsMergesPolicyPassthrough(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), ".pinscan.yaml")
+	if err := os.WriteFile(path, []byte(`
+hosts:
+  login.bank.example:
+    passthrough: true
+    reason: SPKI-pinned login API
+  api.bank.example:
+    expect: spki
+    reason: must pin
+`), 0o600); err != nil {
+		t.Fatalf("write policy: %v", err)
+	}
+	opts, err := parseScanArgs([]string{"-policy", path, "-passthrough", "*.cdn.example", "com.example.app"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("parseScanArgs: %v", err)
+	}
+	if !opts.passthrough.Match("login.bank.example") {
+		t.Error("the policy's passthrough host is not matched")
+	}
+	if !opts.passthrough.Match("img.cdn.example") {
+		t.Error("the -passthrough flag is not matched alongside the policy")
+	}
+	if opts.passthrough.Match("api.bank.example") {
+		t.Error("an expect-only policy host must not be passthrough")
+	}
+}
+
+func TestParseScanArgsRejectsMalformedPassthrough(t *testing.T) {
+	t.Parallel()
+
+	for _, pattern := range []string{"*.", "api.*.example", ""} {
+		if _, err := parseScanArgs([]string{"-passthrough", pattern, "com.example.app"}, &bytes.Buffer{}); err == nil {
+			t.Errorf("parseScanArgs(-passthrough %q) = nil error, want a usage error", pattern)
+		}
+	}
+}
+
+func TestParseScanArgsAcceptsRelayEverything(t *testing.T) {
+	t.Parallel()
+
+	// The bare * is the explicit discovery run: every host is relayed and
+	// listed, nothing is tested.
+	opts, err := parseScanArgs([]string{"-passthrough", "*", "com.example.app"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("parseScanArgs(-passthrough *): %v", err)
+	}
+	if !opts.passthrough.MatchesAll() || !opts.passthrough.Match("anything.example") {
+		t.Errorf("-passthrough * did not produce a relay-everything matcher: %q", opts.passthrough.Patterns())
+	}
+}
+
+func TestStringListCollectsValues(t *testing.T) {
+	t.Parallel()
+
+	var l stringList
+	for _, v := range []string{"a", "b"} {
+		if err := l.Set(v); err != nil {
+			t.Fatalf("Set(%q): %v", v, err)
+		}
+	}
+	if got := l.String(); got != "a,b" {
+		t.Errorf("String() = %q, want a,b", got)
+	}
+}
+
+func TestPrintTallyShowsPassthroughBucket(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	if err := printTally(&out, scan.Summary{Hosts: 4, Interceptable: 1, Inconclusive: 2, Passthrough: 1}); err != nil {
+		t.Fatalf("printTally: %v", err)
+	}
+	want := "4 host(s): 1 interceptable, 1 inconclusive (not verified), 1 passthrough (not tested), 1 hardened"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("tally = %q, want %q", out.String(), want)
+	}
+
+	out.Reset()
+	if err := printTally(&out, scan.Summary{Hosts: 3, Interceptable: 1, Inconclusive: 1}); err != nil {
+		t.Fatalf("printTally: %v", err)
+	}
+	if strings.Contains(out.String(), "passthrough") {
+		t.Errorf("tally mentions passthrough with none: %q", out.String())
+	}
+	if want := "3 host(s): 1 interceptable, 1 inconclusive (not verified), 1 hardened"; !strings.Contains(out.String(), want) {
+		t.Errorf("tally = %q, want %q", out.String(), want)
 	}
 }
 
