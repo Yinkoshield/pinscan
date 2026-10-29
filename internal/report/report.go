@@ -15,14 +15,40 @@ import (
 	"unicode/utf8"
 
 	"github.com/yinkoshield/pinscan/internal/capture"
+	"github.com/yinkoshield/pinscan/internal/classify"
 	"github.com/yinkoshield/pinscan/internal/scan"
 )
 
 // SchemaVersion is the semantic version of the JSON report contract. A consumer
 // refuses an unknown MAJOR; additive fields bump MINOR. See the JSON Schema
 // returned by [Schema]. 1.1.0 added scan.ca_trust; 1.2.0 added
-// summary.passthrough and the per-host passthrough and caveat fields.
-const SchemaVersion = "1.2.0"
+// summary.passthrough and the per-host passthrough and caveat fields; 1.3.0
+// added the per-host three-valued interceptability and deprecated the boolean
+// interceptable.
+const SchemaVersion = "1.3.0"
+
+// Interceptability values: whether a trusted-CA attacker was shown to defeat
+// the host. It is three-valued because three states are real: shown
+// defeatable, shown resistant, and not determined. The last covers key-pinned
+// (wave C did not separate a key check from name validation) and inconclusive
+// alike, and a report must never collapse it into "no".
+const (
+	InterceptabilityYes            = "yes"
+	InterceptabilityNo             = "no"
+	InterceptabilityNotEstablished = "not-established"
+)
+
+// interceptabilityOf maps a verdict to its [HostReport.Interceptability].
+func interceptabilityOf(v classify.Verdict) string {
+	switch {
+	case v.Defeatable():
+		return InterceptabilityYes
+	case v == classify.SPKI:
+		return InterceptabilityNo
+	default:
+		return InterceptabilityNotEstablished
+	}
+}
 
 // toolName is the tool name written into every report format.
 const toolName = "pinscan"
@@ -92,11 +118,19 @@ type Meta struct {
 // HostReport is one host's verdict, the per-wave evidence behind it, and (if
 // captured) its exchanges.
 type HostReport struct {
-	Host          string `json:"host"`
-	Verdict       string `json:"verdict"`
-	Confidence    string `json:"confidence"`
-	Mechanism     string `json:"mechanism"`
-	Interceptable bool   `json:"interceptable"`
+	Host       string `json:"host"`
+	Verdict    string `json:"verdict"`
+	Confidence string `json:"confidence"`
+	Mechanism  string `json:"mechanism"`
+	// Interceptable is true only when the host was shown defeatable. It is
+	// deprecated since schema 1.3.0 because false conflates "shown resistant"
+	// with "not determined"; consumers should read Interceptability. It is kept
+	// for one minor version.
+	Interceptable bool `json:"interceptable"`
+	// Interceptability is "yes", "no" or "not-established" (schema 1.3.0): see
+	// [InterceptabilityYes] and friends. The human renderers print this, never
+	// the boolean.
+	Interceptability string `json:"interceptability"`
 	// Passthrough marks a host relayed to its real server and not tested
 	// (schema 1.2.0). Its verdict is inconclusive and Caveat says why.
 	Passthrough bool `json:"passthrough,omitempty"`
@@ -106,6 +140,15 @@ type HostReport struct {
 	Caveat    string           `json:"caveat,omitempty"`
 	Waves     []WaveReport     `json:"waves,omitempty"`
 	Exchanges []ExchangeReport `json:"exchanges,omitempty"`
+}
+
+// InterceptabilityText is Interceptability as the human renderers print it:
+// "yes", "no" or "not established".
+func (h HostReport) InterceptabilityText() string {
+	if h.Interceptability == InterceptabilityNotEstablished {
+		return "not established"
+	}
+	return h.Interceptability
 }
 
 // WaveReport is one wave's observation for a host — the auditable evidence
@@ -146,14 +189,15 @@ func Build(meta Meta, results []scan.HostResult, rec *capture.Recorder) Report {
 	hosts := make([]HostReport, 0, len(results))
 	for _, r := range results {
 		hr := HostReport{
-			Host:          r.Host,
-			Verdict:       r.Verdict.String(),
-			Confidence:    string(r.Confidence),
-			Mechanism:     r.Verdict.Explain(),
-			Interceptable: r.Verdict.Defeatable(),
-			Passthrough:   r.Passthrough(),
-			Caveat:        r.Caveat,
-			Waves:         wavesReport(r.Waves),
+			Host:             r.Host,
+			Verdict:          r.Verdict.String(),
+			Confidence:       string(r.Confidence),
+			Mechanism:        r.Verdict.Explain(),
+			Interceptable:    r.Verdict.Defeatable(),
+			Interceptability: interceptabilityOf(r.Verdict),
+			Passthrough:      r.Passthrough(),
+			Caveat:           r.Caveat,
+			Waves:            wavesReport(r.Waves),
 		}
 		for _, ex := range byHost[r.Host] {
 			hr.Exchanges = append(hr.Exchanges, toExchangeReport(ex))

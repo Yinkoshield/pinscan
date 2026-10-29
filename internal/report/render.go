@@ -41,14 +41,19 @@ var markdownTemplate = texttemplate.Must(texttemplate.New("md").Parse(`# pinscan
 - **Package:** {{.Scan.Package}}
 - **Mode:** {{.Scan.Mode}}{{if .Scan.Transparent}} (transparent){{end}} · window {{.Scan.WindowSeconds}}s{{with .Scan.CATrust}} · research CA trust **{{.}}**{{end}}
 - **Schema:** {{.SchemaVersion}}{{with .Run}} · generated {{.StartedAt}}{{end}}
-- **Summary:** {{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.NotVerified}} inconclusive (not verified){{if .Summary.Passthrough}} · {{.Summary.Passthrough}} passthrough (not tested){{end}}
+- **Summary:** {{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.NotVerified}} inconclusive (not verified){{if .Summary.Passthrough}} · {{.Summary.Passthrough}} passthrough (not tested){{end}}{{if .Summary.Undetermined}} · {{.Summary.Undetermined}} undetermined (key-pinned){{end}} · {{.Summary.Hardened}} hardened
 
 ## Verdicts
 
 | Host | Verdict | Confidence | Interceptable |
 |------|---------|------------|:---:|
-{{range .Hosts}}| {{.Host}} | {{.Verdict}}{{if .Passthrough}} (passthrough, not tested){{end}} | {{.Confidence}} | {{if .Interceptable}}yes{{else}}no{{end}} |
+{{range .Hosts}}| {{.Host}} | {{.Verdict}}{{if .Passthrough}} (passthrough, not tested){{end}} | {{.Confidence}} | {{.InterceptabilityText}} |
 {{end}}
+"not established" is not a weaker "no": the scan did not determine whether a
+trusted-CA attacker defeats the host. For ` + "`key-pinned`" + ` the cloned-issuer wave
+did not separate a key check from name validation; re-run until it decides
+before recording the host as hardened.
+
 ### How each host is pinned
 
 {{range .Hosts}}- **{{.Host}}** — {{.Mechanism}}
@@ -86,7 +91,8 @@ h2 { font-size:1.1rem; margin:2rem 0 .5rem; border-top:1px solid var(--line); pa
 table { border-collapse:collapse; width:100%; margin:1rem 0; font-size:.92rem; }
 th,td { text-align:left; padding:.4rem .6rem; border-bottom:1px solid var(--line); }
 .badge { font:600 .8rem/1 ui-monospace,monospace; padding:.2rem .45rem; border-radius:.3rem; }
-.yes { color:var(--bad); } .no { color:var(--ok); }
+.yes { color:var(--bad); } .no { color:var(--ok); } .not-established { color:#b26a00; }
+.note { color:var(--mut); font-size:.85rem; max-width:72ch; }
 details { margin:.5rem 0; border:1px solid var(--line); border-radius:.4rem; padding:.4rem .7rem; }
 summary { cursor:pointer; font:600 .9rem ui-monospace,monospace; }
 pre { background:var(--code); padding:.7rem; border-radius:.4rem; overflow:auto; font-size:.82rem; white-space:pre-wrap; word-break:break-word; }
@@ -104,7 +110,7 @@ pre { background:var(--code); padding:.7rem; border-radius:.4rem; overflow:auto;
 <body>
 <h1>pinscan report</h1>
 <div class="meta">{{.Scan.Package}} · {{.Scan.Mode}}{{if .Scan.Transparent}} (transparent){{end}} · window {{.Scan.WindowSeconds}}s{{with .Scan.CATrust}} · research CA trust {{.}}{{end}} · schema {{.SchemaVersion}}{{with .Run}} · {{.StartedAt}}{{end}}<br>
-{{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.NotVerified}} inconclusive (not verified){{if .Summary.Passthrough}} · {{.Summary.Passthrough}} passthrough (not tested){{end}}</div>
+{{.Summary.Hosts}} hosts · {{.Summary.Interceptable}} interceptable · {{.Summary.NotVerified}} inconclusive (not verified){{if .Summary.Passthrough}} · {{.Summary.Passthrough}} passthrough (not tested){{end}}{{if .Summary.Undetermined}} · {{.Summary.Undetermined}} undetermined (key-pinned){{end}} · {{.Summary.Hardened}} hardened</div>
 
 <table>
 <thead><tr><th>Host</th><th>Verdict</th><th>Confidence</th><th>Interceptable</th></tr></thead>
@@ -115,10 +121,11 @@ pre { background:var(--code); padding:.7rem; border-radius:.4rem; overflow:auto;
 {{if .Caveat}}<div class="caveat">⚠ {{.Caveat}}</div>{{end}}
 {{if .Waves}}<div class="waves">{{range .Waves}}<span class="wave">{{.Wave}}: {{.Outcome}} <span class="reason">({{.Reason}})</span></span>{{end}}</div>{{end}}</td>
 <td class="conf conf-{{.Confidence}}">{{.Confidence}}</td>
-<td class="{{if .Interceptable}}yes{{else}}no{{end}}">{{if .Interceptable}}yes{{else}}no{{end}}</td>
+<td class="{{.Interceptability}}">{{.InterceptabilityText}}</td>
 </tr>
 {{end}}</tbody>
 </table>
+<p class="note">"not established" is not a weaker "no": the scan did not determine whether a trusted-CA attacker defeats the host. For key-pinned the cloned-issuer wave did not separate a key check from name validation; re-run until it decides before recording the host as hardened.</p>
 
 {{range .Hosts}}{{if .Exchanges}}<h2>{{.Host}}</h2>
 {{range .Exchanges}}<details>

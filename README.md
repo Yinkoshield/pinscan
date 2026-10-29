@@ -106,8 +106,9 @@ pinscan scan com.example.app -report scan.html
 
 > [!TIP]
 > Run `pinscan selftest` first. It mints the certificates, runs the proxy and the
-> classifier against five in-process clients with known postures, including one
-> that does not trust the research CA, and asserts each verdict. If it passes,
+> classifier against six in-process clients with known postures, including one
+> that does not trust the research CA and one relayed untouched, and asserts
+> each verdict. If it passes,
 > the methodology works on your machine. The same proof on a real device, against
 > Network Security Config, OkHttp, a custom TrustManager, WebView and three broken
 > setups, is the [validation matrix](docs/validation.md): a small test app plus
@@ -135,9 +136,15 @@ pinning detects, and exactly what name-based checks miss.
 | `open` | sent a request over the generic leaf | yes |
 | `metadata` | rejected the generic leaf, accepted the cloned names | yes |
 | `name-validation` | rejected both leaves, accepted the cloned-issuer chain | yes |
-| `key-pinned` | rejected the forged leaves; wave C was inconclusive | no |
+| `key-pinned` | rejected the forged leaves; wave C did not separate a key check from issuer-name validation | not established |
 | `spki` | rejected everything, including the cloned issuer | no |
-| `inconclusive` | no usable signal | unknown |
+| `inconclusive` | no usable signal | not established |
+
+"not established" is not a weaker "no". A `key-pinned` host rejected two
+forgeries, but the one wave that tells a key check from a name check returned
+no usable signal, so the scan did not determine whether a trusted-CA attacker
+defeats it. The tally counts it as undetermined, not hardened; re-run until
+wave C decides before recording the host as hardened.
 
 Three rules keep the verdicts honest, and all three are in the code, not the docs:
 

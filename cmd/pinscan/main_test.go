@@ -478,7 +478,7 @@ func TestPrintTallyShowsPassthroughBucket(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	if err := printTally(&out, scan.Summary{Hosts: 4, Interceptable: 1, Inconclusive: 2, Passthrough: 1}); err != nil {
+	if err := printTally(&out, scan.Summary{Hosts: 4, Interceptable: 1, Inconclusive: 2, Passthrough: 1, ByVerdict: map[string]int{"spki": 1}}); err != nil {
 		t.Fatalf("printTally: %v", err)
 	}
 	want := "4 host(s): 1 interceptable, 1 inconclusive (not verified), 1 passthrough (not tested), 1 hardened"
@@ -487,7 +487,7 @@ func TestPrintTallyShowsPassthroughBucket(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := printTally(&out, scan.Summary{Hosts: 3, Interceptable: 1, Inconclusive: 1}); err != nil {
+	if err := printTally(&out, scan.Summary{Hosts: 3, Interceptable: 1, Inconclusive: 1, ByVerdict: map[string]int{"spki": 1}}); err != nil {
 		t.Fatalf("printTally: %v", err)
 	}
 	if strings.Contains(out.String(), "passthrough") {
@@ -495,6 +495,39 @@ func TestPrintTallyShowsPassthroughBucket(t *testing.T) {
 	}
 	if want := "3 host(s): 1 interceptable, 1 inconclusive (not verified), 1 hardened"; !strings.Contains(out.String(), want) {
 		t.Errorf("tally = %q, want %q", out.String(), want)
+	}
+}
+
+// TestPrintTallyCountsKeyPinnedAsUndeterminedNotHardened is the tally-level
+// proof of the rule: a key-pinned host (wave C did not separate a key check from
+// name validation) is its own bucket and is never added to "hardened".
+func TestPrintTallyCountsKeyPinnedAsUndeterminedNotHardened(t *testing.T) {
+	t.Parallel()
+
+	s := scan.Summarize([]scan.HostResult{
+		{Host: "a", Verdict: classify.Open},
+		{Host: "b", Verdict: classify.Inconclusive},
+		{Host: "c", Verdict: classify.KeyPinned},
+		{Host: "d", Verdict: classify.SPKI},
+	})
+	var out bytes.Buffer
+	if err := printTally(&out, s); err != nil {
+		t.Fatalf("printTally: %v", err)
+	}
+	want := "4 host(s): 1 interceptable, 1 inconclusive (not verified), 1 undetermined (key-pinned), 1 hardened"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("tally = %q, want %q", out.String(), want)
+	}
+
+	out.Reset()
+	if err := printResults(&out, []scan.HostResult{{Host: "c", Verdict: classify.KeyPinned, Confidence: scan.ConfidenceMedium}}, false); err != nil {
+		t.Fatalf("printResults: %v", err)
+	}
+	if !strings.Contains(out.String(), "<- not established") {
+		t.Errorf("key-pinned row lacks the not-established marker:\n%s", out.String())
+	}
+	if strings.Contains(out.String(), "1 hardened") {
+		t.Errorf("a lone key-pinned host reads as hardened:\n%s", out.String())
 	}
 }
 

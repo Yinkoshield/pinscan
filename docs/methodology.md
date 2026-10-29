@@ -21,7 +21,10 @@ No forged certificate ever uses the real endpoint's private key — pinscan does
 not have it. That is exactly what a key-level check detects.
 
 Wave A and B always run. Wave C runs only when some host rejected both A and B
-with a certificate alert (i.e. it looks key-pinned and C can refine the finding).
+with a certificate alert. C is not a refinement: it is the only wave that tells a
+key-level check from issuer-name validation, because B is signed by the research
+CA under its own name and a name validator rejects it too. Until C decides, a
+host that rejected the leaves is a candidate, not a result.
 
 ## The verdicts
 
@@ -30,9 +33,18 @@ with a certificate alert (i.e. it looks key-pinned and C can refine the finding)
 | `open` | sent a request over the generic leaf — no pinning | **yes** |
 | `metadata` | rejected generic, accepted the cloned-metadata leaf | **yes** |
 | `name-validation` | rejected the leaves, accepted the cloned-issuer chain | **yes** |
-| `key-pinned` | rejected the forged leaves with a certificate alert; wave C inconclusive | no |
+| `key-pinned` | rejected the forged leaves with a certificate alert; wave C did not separate a key check from issuer-name validation | not established |
 | `spki` | rejected everything, incl. the cloned issuer, with a certificate alert | no |
-| `inconclusive` | no usable signal, or trust unverified (see below) | no |
+| `inconclusive` | no usable signal, or trust unverified (see below) | not established |
+
+"not established" is not a weaker "no". For `key-pinned` the host is a key-level
+check, a name validator, or (when B returned no signal) even a metadata
+validator, and the scan did not determine which; wave C either returned no
+usable signal or never ran because only one leaf was genuinely rejected. The
+tally counts such a host as **undetermined**, the reports print "not
+established", JUnit skips it and SARIF files it as a warning. Re-run until wave
+C decides before recording the host as hardened; `-min-confidence high` or a
+policy `expect: spki` makes CI refuse to pass on it.
 
 Verdict names describe **behaviour under these three forgeries**, not the
 mechanism that produced it. `spki` is the strongest posture pinscan can observe:

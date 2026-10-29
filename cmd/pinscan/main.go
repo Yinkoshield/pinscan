@@ -1153,8 +1153,11 @@ func printResults(w io.Writer, results []scan.HostResult, explain bool) error {
 	}
 	for _, r := range results {
 		note := ""
-		if r.Verdict.Defeatable() {
+		switch {
+		case r.Verdict.Defeatable():
 			note = "  <- interceptable"
+		case r.Verdict == classify.KeyPinned:
+			note = "  <- not established"
 		}
 		if _, err := fmt.Fprintf(w, "%-44s %-14s conf=%-6s%s\n",
 			r.Host, r.Verdict, r.Confidence, note); err != nil {
@@ -1208,15 +1211,22 @@ func printTrust(w io.Writer, results []scan.HostResult, status string) error {
 
 // printTally prints the aggregate counts, always surfacing inconclusive hosts so
 // an incomplete scan never reads as a clean pass. Passthrough hosts get their
-// own bucket, so a relayed host never reads as verified or as hardened.
+// own bucket, so a relayed host never reads as verified or as hardened, and so
+// do key-pinned hosts ("undetermined"), whose cloned-issuer wave did not decide:
+// only spki counts as hardened. The buckets are disjoint and sum to the total.
 func printTally(w io.Writer, s scan.Summary) error {
-	if s.Passthrough == 0 {
-		_, err := fmt.Fprintf(w, "\n%d host(s): %d interceptable, %d inconclusive (not verified), %d hardened\n",
-			s.Hosts, s.Interceptable, s.NotVerified(), s.Hardened())
-		return err
+	parts := []string{
+		fmt.Sprintf("%d interceptable", s.Interceptable),
+		fmt.Sprintf("%d inconclusive (not verified)", s.NotVerified()),
 	}
-	_, err := fmt.Fprintf(w, "\n%d host(s): %d interceptable, %d inconclusive (not verified), %d passthrough (not tested), %d hardened\n",
-		s.Hosts, s.Interceptable, s.NotVerified(), s.Passthrough, s.Hardened())
+	if s.Passthrough > 0 {
+		parts = append(parts, fmt.Sprintf("%d passthrough (not tested)", s.Passthrough))
+	}
+	if s.Undetermined() > 0 {
+		parts = append(parts, fmt.Sprintf("%d undetermined (key-pinned)", s.Undetermined()))
+	}
+	parts = append(parts, fmt.Sprintf("%d hardened", s.Hardened()))
+	_, err := fmt.Fprintf(w, "\n%d host(s): %s\n", s.Hosts, strings.Join(parts, ", "))
 	return err
 }
 

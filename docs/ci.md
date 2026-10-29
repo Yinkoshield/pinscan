@@ -22,6 +22,13 @@ The gate flags are opt-in: `-fail-on-interceptable` (→3), `-fail-on-regression
 reports but never fails. The tally (and the report) always show the counts, so
 even a passing run surfaces inconclusive hosts.
 
+A `key-pinned` host is **not established**, not hardened: it rejected the forged
+leaves, but the cloned-issuer wave did not separate a key check from name
+validation. The tally counts it as "undetermined (key-pinned)", JUnit skips it
+and SARIF files it as a warning. It does not trip `-fail-on-interceptable` or
+`-fail-on-inconclusive`. To refuse to pass on it, use `-min-confidence high`
+(key-pinned is capped at medium) or a policy rule with `expect: spki`.
+
 ## Baselines and the regression gate (the "JSON repo")
 
 Commit a baseline, then fail the build the day a release weakens a host — in the

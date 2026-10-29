@@ -16,7 +16,9 @@ assigns a **verdict**:
 
 - `open` — the app accepted the forged cert: **interceptable** (no effective pinning).
 - `metadata` / `name-validation` — weak checks a trusted-CA attacker still defeats: interceptable.
-- `key-pinned` / `spki` — the app pinned the real key and **rejected** the forgery: hardened.
+- `spki` — the app **rejected** every forgery, including the cloned-issuer chain: hardened.
+- `key-pinned` — the app rejected the forged leaves, but the cloned-issuer wave
+  did not decide: **not established**, counted as undetermined, not hardened.
 - `inconclusive` — the app made no classifiable request; no signal (never read as "safe").
 
 For the app to *accept* the forgery, it must **trust your research CA**. Most of

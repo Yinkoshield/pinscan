@@ -44,6 +44,10 @@ import (
 // host is the endpoint name every posture is scanned against.
 const host = "api.selftest.local"
 
+// PostureCount is how many postures [Run] exercises. The README states this
+// number in words; a test keeps the two from drifting apart.
+const PostureCount = 6
+
 // Case is the result of one posture: the verdict expected versus produced, and
 // the reason the generic wave recorded, so the proof shows why a verdict came
 // out as it did (for the passthrough posture, that reason is the assertion).

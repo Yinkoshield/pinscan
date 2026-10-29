@@ -36,6 +36,70 @@ func TestSummarize(t *testing.T) {
 			t.Errorf("ByVerdict[%q] = %d, want %d", verdict, got, want)
 		}
 	}
+	// A key-pinned host is not hardened: wave C did not separate a key check
+	// from name validation, so the host may still be interceptable.
+	if s.Hardened() != 1 {
+		t.Errorf("Hardened = %d, want 1 (spki only; key-pinned is not hardened)", s.Hardened())
+	}
+	if s.Undetermined() != 1 {
+		t.Errorf("Undetermined = %d, want 1 (the key-pinned host)", s.Undetermined())
+	}
+}
+
+// TestKeyPinnedIsNotCountedHardened pins the rule on its own: a scan whose only
+// non-interceptable host is key-pinned has zero hardened hosts.
+func TestKeyPinnedIsNotCountedHardened(t *testing.T) {
+	t.Parallel()
+
+	s := scan.Summarize([]scan.HostResult{
+		{Host: "candidate", Verdict: classify.KeyPinned},
+		{Host: "weak", Verdict: classify.NameValidation},
+	})
+	if s.Hardened() != 0 {
+		t.Errorf("Hardened = %d, want 0: key-pinned must not count as hardened", s.Hardened())
+	}
+	if s.Undetermined() != 1 || s.Interceptable != 1 {
+		t.Errorf("Undetermined = %d, Interceptable = %d, want 1 and 1", s.Undetermined(), s.Interceptable)
+	}
+}
+
+// TestTallyBucketsAreDisjointAndSumToHosts makes a future verdict impossible to
+// misfile silently: every host lands in exactly one tally bucket.
+func TestTallyBucketsAreDisjointAndSumToHosts(t *testing.T) {
+	t.Parallel()
+
+	var results []scan.HostResult
+	for v := classify.Inconclusive; v <= classify.SPKI; v++ {
+		results = append(results, scan.HostResult{Host: v.String(), Verdict: v})
+	}
+	results = append(results, scan.HostResult{Host: "relayed", Verdict: classify.Inconclusive, Waves: map[string]scan.WaveObservation{
+		"generic": {Outcome: classify.Ambiguous, Reason: proxy.ReasonPassthrough},
+	}})
+	s := scan.Summarize(results)
+
+	buckets := map[string]int{
+		"interceptable": s.Interceptable,
+		"not verified":  s.NotVerified(),
+		"passthrough":   s.Passthrough,
+		"undetermined":  s.Undetermined(),
+		"hardened":      s.Hardened(),
+	}
+	sum := 0
+	for name, n := range buckets {
+		if n < 0 {
+			t.Errorf("bucket %s = %d, want >= 0", name, n)
+		}
+		sum += n
+	}
+	if sum != s.Hosts {
+		t.Errorf("buckets %v sum to %d, want %d hosts", buckets, sum, s.Hosts)
+	}
+	want := map[string]int{"interceptable": 3, "not verified": 1, "passthrough": 1, "undetermined": 1, "hardened": 1}
+	for name, n := range want {
+		if buckets[name] != n {
+			t.Errorf("bucket %s = %d, want %d", name, buckets[name], n)
+		}
+	}
 }
 
 func TestSummarizeCountsPassthroughSeparatelyAndAsInconclusive(t *testing.T) {
@@ -72,7 +136,7 @@ func TestSummarizeCountsPassthroughSeparatelyAndAsInconclusive(t *testing.T) {
 	if s.NotVerified() != 1 || s.Hardened() != 1 {
 		t.Errorf("NotVerified = %d, Hardened = %d, want 1 and 1", s.NotVerified(), s.Hardened())
 	}
-	if s.Interceptable+s.NotVerified()+s.Passthrough+s.Hardened() != s.Hosts {
+	if s.Interceptable+s.NotVerified()+s.Passthrough+s.Undetermined()+s.Hardened() != s.Hosts {
 		t.Errorf("tally buckets do not sum to %d hosts: %+v", s.Hosts, s)
 	}
 }
